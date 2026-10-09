@@ -167,7 +167,9 @@ fn loudness_entries(s: &AppSettings) -> Vec<Entry> {
 }
 
 /// The options menu of a card.
-pub fn card_menu(card: Card, s: &AppSettings, frozen: bool) -> Vec<Entry> {
+/// It holds only what belongs to this card: "Freeze Display" stops every card, so it stands in the settings
+/// menu (and on the space bar).
+pub fn card_menu(card: Card, s: &AppSettings) -> Vec<Entry> {
     let mut menu = Vec::new();
     match card {
         Card::Spectrum => {
@@ -256,7 +258,9 @@ pub fn card_menu(card: Card, s: &AppSettings, frozen: bool) -> Vec<Entry> {
             menu.push(Entry::Separator);
         }
     }
-    menu.push(check("Freeze Display\tSpace", frozen, Command::ToggleFreeze));
+    while matches!(menu.last(), Some(Entry::Separator)) {
+        menu.pop();
+    }
     menu
 }
 
@@ -572,7 +576,7 @@ mod tests {
     #[test]
     fn the_spectrum_menu_shows_the_settings_of_now() {
         let mut s = AppSettings::default();
-        let menu = titles(&card_menu(Card::Spectrum, &s, false));
+        let menu = titles(&card_menu(Card::Spectrum, &s));
         assert_eq!(
             menu,
             [
@@ -594,18 +598,17 @@ mod tests {
                 "[ ] 60 dB",
                 "[ ] 96 dB",
                 "[ ] 120 dB",
-                "-",
-                "[ ] Freeze Display\tSpace",
             ]
         );
         assert_eq!(run(&mut s, Command::ToggleSide), Effect::Settings);
         assert_eq!(run(&mut s, Command::LevelRange(120)), Effect::Settings);
         assert_eq!(run(&mut s, Command::Tilt(4.5)), Effect::Settings);
-        let menu = titles(&card_menu(Card::Spectrum, &s, true));
+        let menu = titles(&card_menu(Card::Spectrum, &s));
         assert!(menu.contains(&"[x] Side (L\u{2212}R)".to_string()));
         assert!(menu.contains(&"[x] 120 dB".to_string()) && menu.contains(&"[ ] Auto (follows the music)".to_string()));
         assert!(menu.contains(&"[x] 4.5 dB per octave".to_string()));
-        assert_eq!(menu.last().unwrap(), "[x] Freeze Display\tSpace");
+        // "Freeze Display" stops every card: it is not in the menu of one card.
+        assert!(!menu.iter().any(|title| title.contains("Freeze")));
     }
 
     #[test]
@@ -616,17 +619,12 @@ mod tests {
                     layout_preset: preset,
                     ..AppSettings::default()
                 };
-                let menu = card_menu(card, &s, false);
+                let menu = card_menu(card, &s);
                 assert!(
-                    matches!(
-                        menu.last(),
-                        Some(Entry::Item {
-                            command: Command::ToggleFreeze,
-                            ..
-                        })
-                    ),
+                    !menu.is_empty() && !matches!(menu.last(), Some(Entry::Separator)),
                     "{card:?}"
                 );
+                assert!(!commands(&menu).contains(&Command::ToggleFreeze), "{card:?}");
                 for command in commands(&menu) {
                     let before = s.clone();
                     let effect = run(&mut s, command);
@@ -641,10 +639,10 @@ mod tests {
             layout_preset: LayoutPreset::Spectrum,
             ..AppSettings::default()
         };
-        assert!(titles(&card_menu(Card::Spectrogram, &s, false))
+        assert!(titles(&card_menu(Card::Spectrogram, &s))
             .contains(&"[x] Stereo Placement Beside the Spectrogram\tCtrl+4".to_string()));
         assert_eq!(
-            titles(&card_menu(Card::Meters, &s, false))[..5],
+            titles(&card_menu(Card::Meters, &s))[..5],
             [
                 "Reset Measurement\tR",
                 "-",
@@ -654,7 +652,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            titles(&card_menu(Card::Timeline, &s, false))[..4],
+            titles(&card_menu(Card::Timeline, &s))[..4],
             ["# Window", "[ ] 5 minutes", "[x] 15 minutes", "[ ] 30 minutes"]
         );
     }

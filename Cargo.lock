@@ -752,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "joseon-app"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "bytemuck",
  "joseon-capture",
@@ -772,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "joseon-capture"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "joseon-core",
  "windows",
@@ -780,14 +780,14 @@ dependencies = [
 
 [[package]]
 name = "joseon-core"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "realfft",
 ]
 
 [[package]]
 name = "joseon-headphones"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "joseon-core",
  "realfft",
@@ -797,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "joseon-probe"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "joseon-capture",
  "joseon-core",
@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "joseon-render"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "ab_glyph",
  "bytemuck",

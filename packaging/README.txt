@@ -43,6 +43,15 @@ next to the clock; Windows may keep it behind the "^" arrow).
 
 Menus
 -----
+The vectorscope card has a second button with two arrows: it swaps the
+view between the vectorscope and the stereo placement by frequency.
+"Freeze Display" (settings menu, or the space bar) stops all panels.
+
+The session timeline: a click sets a pin at a moment of the past. The
+line over the timeline then shows the numbers of that moment (time,
+loudness, peak). A second click on the pin takes it away. The small
+mark beside "no clipped samples" is the sign that would show on the
+timeline where samples clipped.
 Every card has a "..." button at its top right (a right click on the card
 opens the same menu). The button with three lines at the top right holds
 all settings.

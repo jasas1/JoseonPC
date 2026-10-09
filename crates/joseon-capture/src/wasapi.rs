@@ -296,7 +296,7 @@ impl Endpoint for WasapiStream {
                     Err(_) => None,
                 };
                 if let Some(name) = name {
-                    if Some(name.to_lowercase()) == own_name {
+                    if Some(name.to_lowercase()) == own_name || !crate::now_playing::is_player(&name) {
                         continue;
                     }
                     if !names.contains(&name) {

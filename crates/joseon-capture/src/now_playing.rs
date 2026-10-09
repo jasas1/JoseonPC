@@ -27,6 +27,13 @@ pub struct MediaSession {
     pub is_playing: bool,
 }
 
+/// False for the programs of Windows itself that hold a sound session and play nothing a listener chose
+/// (the service host, the audio engine). They do not show beside the players.
+pub fn is_player(name: &str) -> bool {
+    const SYSTEM: [&str; 6] = ["svchost", "audiodg", "system", "dwm", "sihost", "runtimebroker"];
+    !SYSTEM.iter().any(|system| name.eq_ignore_ascii_case(system))
+}
+
 /// "Spotify.exe" gives "Spotify"; a store id gives the part after "!"; a dotted id gives its last part.
 pub fn program_name(app_id: &str) -> String {
     let id = app_id.rsplit('!').next().unwrap_or(app_id);
@@ -195,6 +202,16 @@ mod tests {
             artist: artist.to_string(),
             album: String::new(),
             is_playing: playing,
+        }
+    }
+
+    #[test]
+    fn the_programs_of_windows_are_no_players() {
+        for name in ["svchost", "SVCHOST", "audiodg", "System"] {
+            assert!(!is_player(name), "{name}");
+        }
+        for name in ["Spotify", "SomeGame", "chrome", "process 4312"] {
+            assert!(is_player(name), "{name}");
         }
     }
 

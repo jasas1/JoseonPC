@@ -121,6 +121,12 @@ pub fn options_button(card: Rect) -> Rect {
     Rect::new(card.max_x() - 8.0 - 22.0, card.y + 3.0, 22.0, 22.0)
 }
 
+/// The button left of "..." on a card that has a second view: one click shows the other view.
+pub fn swap_button(card: Rect) -> Rect {
+    let options = options_button(card);
+    Rect::new(options.x - 4.0 - 22.0, options.y, 22.0, 22.0)
+}
+
 /// The settings button of the header, left of the layout buttons.
 pub fn settings_button(width: f32) -> Rect {
     let first = preset_buttons(width)[0].1;
@@ -163,6 +169,8 @@ struct ChromeCard {
     plate: Option<String>,
     group: Option<wgpu::BindGroup>,
     dimmed: bool,
+    /// The card has a second view: the swap button shows.
+    swaps: bool,
 }
 
 /// The layer under and over the panel pictures: card frames, titles, the header.
@@ -401,8 +409,25 @@ impl Panel for ChromePanel {
             // The text beside the title shows whole or not at all.
             if let Some(state) = &card.state {
                 let font = fonts::ui(11.0, Weight::Regular);
-                if x + w + 10.0 + o.measure(state, &font, 0.0) <= options_button(card.rect).x - 6.0 {
+                let room = if card.swaps {
+                    swap_button(card.rect).x
+                } else {
+                    options_button(card.rect).x
+                };
+                if x + w + 10.0 + o.measure(state, &font, 0.0) <= room - 6.0 {
                     o.text(state, x + w + 10.0, y, &font, secondary, HAlign::Left, VAlign::Middle);
+                }
+            }
+            // The swap button: two arrows, one to each side.
+            if card.swaps {
+                let b = swap_button(card.rect);
+                let (cx, cy) = (b.mid_x(), b.mid_y());
+                for (dy, tip, tail) in [(-3.0, cx + 6.0, cx - 6.0), (3.0, cx - 6.0, cx + 6.0)] {
+                    let y = cy + dy;
+                    let back = if tip > tail { -3.0 } else { 3.0 };
+                    o.line([tail, y], [tip, y], secondary, 1.3, &[]);
+                    o.line([tip, y], [tip + back, y - 2.5], secondary, 1.3, &[]);
+                    o.line([tip, y], [tip + back, y + 2.5], secondary, 1.3, &[]);
                 }
             }
             if let Some(text) = &card.plate {
@@ -1034,6 +1059,7 @@ impl Scene {
                 plate: text.filter(|_| !beside_title),
                 group: view.group.clone(),
                 dimmed: self.frozen,
+                swaps: view.card == Card::Vectorscope,
             });
         }
         let banners: Vec<(Rect, Banner)> = self
@@ -1045,7 +1071,7 @@ impl Scene {
             .collect();
         let mut h = Signature::new();
         for card in &cards {
-            h.add(&card.title).add(&card.state).add(&card.plate);
+            h.add(&card.title).add(&card.state).add(&card.plate).add(card.swaps);
             for v in [card.rect.x, card.rect.y, card.rect.w, card.rect.h] {
                 h.add_f32(v);
             }
@@ -1179,6 +1205,7 @@ impl Scene {
         }
         if preset_buttons(self.width).iter().any(|(_, r)| r.contains_point(x, y))
             || self.menu_button_at(x, y).is_some()
+            || self.swap_button_at(x, y)
             || stress_strip::hit(&self.strip, x, y).is_some()
         {
             return PointerShape::Hand;
@@ -1209,6 +1236,9 @@ impl Scene {
         }
         if let Some(target) = self.menu_button_at(x, y) {
             return Action::OpenMenu(target);
+        }
+        if self.swap_button_at(x, y) {
+            return self.run(Command::StereoPlacement(!self.settings.stereo_placement_mode));
         }
         // The strip: a chip shows its detail (a second click hides it); the rest opens the headphone menu.
         let open = self.open_chip.take();
@@ -1263,6 +1293,13 @@ impl Scene {
         Action::None
     }
 
+    /// True over the swap button of the card with two views.
+    fn swap_button_at(&self, x: f32, y: f32) -> bool {
+        self.layout
+            .card(Card::Vectorscope)
+            .is_some_and(|rect| swap_button(rect).contains_point(x, y))
+    }
+
     fn menu_button_at(&self, x: f32, y: f32) -> Option<MenuTarget> {
         if settings_button(self.width).contains_point(x, y) {
             return Some(MenuTarget::Settings);
@@ -1289,7 +1326,7 @@ impl Scene {
     /// What a menu holds now.
     pub fn menu(&self, target: MenuTarget) -> Vec<Entry> {
         match target {
-            MenuTarget::Card(card) => menu::card_menu(card, &self.settings, self.frozen),
+            MenuTarget::Card(card) => menu::card_menu(card, &self.settings),
             MenuTarget::Settings => {
                 let mut entries = menu::settings_menu(&self.settings, self.frozen, &self.names);
                 entries.extend(menu::update_entries(&self.settings, &self.update));

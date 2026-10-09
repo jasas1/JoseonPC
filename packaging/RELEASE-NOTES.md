@@ -3,6 +3,13 @@ An early test build of Joseon for Windows.
 **To try it:** download the zip below, unpack it, play some music, and start `Joseon.exe`.
 Nothing is installed. `README.txt` in the zip has the keys and what to do when the panels do not move.
 
+**New in v0.0.9**
+- The panels keep moving while a menu is open.
+- A swap button (two arrows) on the vectorscope card: one click shows the stereo placement view, the next one the vectorscope again.
+- "Freeze Display" is now only in the settings menu (and on the space bar). It stops every panel, so it does not belong in the menu of one panel.
+- Background services of Windows (svchost and the like) no longer show beside the players.
+- From v0.0.8 this version comes through "Check for Updates…".
+
 **New in v0.0.8**
 - Updates from inside the program: the settings menu has "Check for Updates…". When a newer Joseon is there, "Update to … and Relaunch" fetches it, puts it in place and starts it. Joseon also looks by itself after the start and once a day (you can switch that off).
 

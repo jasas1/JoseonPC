@@ -414,6 +414,17 @@ impl App {
         }
     }
 
+    /// One picture of the main window and of the strip, from the timer that runs while a menu is open.
+    #[cfg(windows)]
+    fn draw_under_menu(&mut self) {
+        if self.main_is_visible() {
+            self.draw();
+        }
+        if let Some(strip) = &mut self.strip {
+            strip.draw();
+        }
+    }
+
     fn show_window(&mut self) {
         if let Some(window) = &self.window {
             window.set_visible(true);
@@ -437,7 +448,13 @@ impl App {
             let _ = menu.append(item);
         });
         let position = muda::dpi::Position::Logical(muda::dpi::LogicalPosition::new(at[0] as f64, at[1] as f64));
-        show_menu(window, &menu, Some(position));
+        {
+            // A menu runs its own event loop, and the window gets no pictures from winit under it. A timer of
+            // Windows calls into this program all the same: it draws the pictures while the menu is open.
+            #[cfg(windows)]
+            let _draws = menu_draw::start(self);
+            show_menu(window, &menu, Some(position));
+        }
         // The button that opened the menu went up inside the menu.
         let released = self.shell.scene.pointer_released();
         self.act(released);
@@ -794,6 +811,47 @@ impl ApplicationHandler for App {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Pictures while a menu is open (see `App::open_menu`).
+#[cfg(windows)]
+mod menu_draw {
+    use super::App;
+    use std::cell::Cell;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
+
+    thread_local! {
+        /// The program whose menu is open. Null while none is.
+        static APP: Cell<*mut App> = const { Cell::new(std::ptr::null_mut()) };
+    }
+
+    unsafe extern "system" fn tick(_window: HWND, _message: u32, _id: usize, _time: u32) {
+        let app = APP.with(Cell::get);
+        if !app.is_null() {
+            // SAFETY: the pointer is set only for the time of the menu call in `open_menu`, on this thread.
+            // `open_menu` waits inside that call and touches the program again only when it returns.
+            unsafe { (*app).draw_under_menu() };
+        }
+    }
+
+    /// Ends the pictures when it is dropped.
+    pub struct Draws(usize);
+
+    pub fn start(app: &mut App) -> Draws {
+        APP.with(|cell| cell.set(app));
+        // About 60 pictures per second; the display paces them.
+        Draws(unsafe { SetTimer(None, 0, 15, Some(tick)) })
+    }
+
+    impl Drop for Draws {
+        fn drop(&mut self) {
+            APP.with(|cell| cell.set(std::ptr::null_mut()));
+            unsafe {
+                let _ = KillTimer(None, self.0);
+            }
         }
     }
 }

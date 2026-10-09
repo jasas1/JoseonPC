@@ -275,7 +275,7 @@ fn the_buttons_open_menus_and_the_items_change_the_window() {
     scene.pointer_released();
     assert!(scene.cursor().is_none(), "a click on the button pins no cursor");
     let menu = scene.menu(MenuTarget::Card(Card::Spectrum));
-    assert_eq!(crate::menu::commands(&menu).len(), 14);
+    assert_eq!(crate::menu::commands(&menu).len(), 13);
     assert_eq!(scene.run(Command::ToggleSide), Action::SettingsChanged);
     assert!(scene.settings().show_side);
     // The same choice again changes nothing.
@@ -363,4 +363,26 @@ fn the_strip_opens_the_headphone_menu_and_a_chip_shows_its_detail() {
     assert_eq!(scene.pointer_pressed(), Action::None);
     scene.pointer_released();
     assert!(scene.strip_layout().detail.is_none());
+}
+
+#[test]
+fn the_swap_button_shows_the_other_view_of_the_card() {
+    let Some(mut scene) = scene(AppSettings::default(), 1280.0, 800.0) else {
+        return;
+    };
+    let card = scene
+        .layout()
+        .card(Card::Vectorscope)
+        .expect("the card of the essential layout");
+    let (swap, options) = (crate::scene::swap_button(card), options_button(card));
+    assert!(swap.max_x() <= options.x, "the buttons stand side by side");
+    scene.pointer_moved(Some([swap.mid_x(), swap.mid_y()]));
+    assert_eq!(scene.pointer_shape(), PointerShape::Hand);
+    assert_eq!(scene.pointer_pressed(), Action::SettingsChanged);
+    scene.pointer_released();
+    assert!(scene.settings().stereo_placement_mode);
+    assert_eq!(scene.pointer_pressed(), Action::SettingsChanged);
+    scene.pointer_released();
+    assert!(!scene.settings().stereo_placement_mode);
+    let _ = save(&mut scene, "app-swap-button");
 }
