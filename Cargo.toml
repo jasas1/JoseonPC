@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/joseon-core",
+    "crates/joseon-capture",
+    "crates/joseon-headphones",
+    "crates/joseon-render",
+    "crates/joseon-app",
+    "crates/joseon-probe",
+]
+
+[workspace.package]
+version = "0.0.8"
+edition = "2021"
+license = "GPL-3.0-only"
+authors = ["James Sumpter"]
+
+[workspace.dependencies]
+joseon-core = { path = "crates/joseon-core" }
+joseon-capture = { path = "crates/joseon-capture" }
+joseon-headphones = { path = "crates/joseon-headphones" }
+joseon-render = { path = "crates/joseon-render" }
+
+# Style lints that fight DSP code ported index by index from Swift. The other
+# clippy lints stay on, and CI treats a warning as an error.
+[workspace.lints.clippy]
+# Index loops mirror the Swift source and often walk several arrays at once.
+needless_range_loop = "allow"
+# `!(x > 0.0)` is also true for NaN, which is what a guard needs.
+neg_cmp_op_on_partial_ord = "allow"
+# `f >= 20.0 && f <= 40.0` reads as the band it is.
+manual_range_contains = "allow"
+# `chunks_exact(BLOCK)` gives slices, which is what `process` takes.
+chunks_exact_to_as_chunks = "allow"
+# `n % 11 == 0` reads as what it is.
+manual_is_multiple_of = "allow"
+# `min(max(x, lo), hi)` is how the Swift source writes it, and it gives a NaN
+# input the same result as Swift does. `clamp` gives NaN.
+manual_clamp = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

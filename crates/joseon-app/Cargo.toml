@@ -1,0 +1,32 @@
+[package]
+name = "joseon-app"
+description = "L3: windows, tray icon, settings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "joseon"
+path = "src/main.rs"
+
+[dependencies]
+joseon-core.workspace = true
+joseon-capture.workspace = true
+joseon-headphones.workspace = true
+joseon-render.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bytemuck = { version = "1", features = ["derive"] }
+wgpu = "30"
+winit = "0.30"
+muda = { version = "0.21", default-features = false }
+tray-icon = { version = "0.26", default-features = false }
+rfd = "0.17.2"
+sha2 = "0.11.0"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Time", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[lints]
+workspace = true

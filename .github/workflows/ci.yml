@@ -1,0 +1,68 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+# A new push stops the run of the push before it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs on the development machine before every commit. Start it here by hand when needed.
+        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["windows-latest", "macos-latest"]') || fromJSON('["windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      # Shared runners are slower than the machine the time budgets come from.
+      JOSEON_TIMING_SLACK: "5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Every crate runs, also after a failure in one of them.
+      - run: cargo test --workspace --release --no-fail-fast
+      # What the capture says on this machine. A build server has no sound device: the lines show how the
+      # code tells it. Not a test: the step never fails the run.
+      - name: Build the probe
+        if: runner.os == 'Windows' && always()
+        run: cargo build --release -p joseon-probe -p joseon-app
+      - name: Probe the sound devices
+        if: runner.os == 'Windows' && always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Get-Service Audiosrv, AudioEndpointBuilder | Format-Table Name, Status, StartType
+          Start-Service Audiosrv -ErrorAction Continue
+          ./target/release/joseon-probe.exe devices
+          ./target/release/joseon-probe.exe capture --seconds 2
+          # The window program, with no window: pictures of the three layouts, drawn on this machine.
+          $p = Start-Process ./target/release/joseon.exe -ArgumentList '--demo','--snapshot','snapshots','--seconds','2' -Wait -PassThru
+          "joseon --snapshot: exit $($p.ExitCode)"
+          exit 0
+      # The probe for a test on a real PC: download it from the page of the run.
+      - name: Keep the probe
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: joseon-probe-windows
+          path: |
+            target/release/joseon-probe.exe
+            target/release/joseon.exe
+            snapshots/*.png
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,82 @@
+stepped 0.0 0.0 0.0 5.0 115.0 120.0 135.0 585.0 600.0 660.0 6660.0 -1.0
+timeText —|∞|0:00|0:05|1:05|10:00|99:59|> 99 h
+uncertainty ± 0 dB/± 0|± 0 dB/± 0.5|± 2 dB/± 2|± 4 dB/± 3.5|± 4 dB/± 3.5|± 4 dB/± 4.5|± 0 dB/± 0|± 0 dB/± 0
+wide layout 14.0 14.0 150.0 532.0 328.0 14.0 340.0 532.0 174.0 14.0 132.0 532.0 682.0 14.0 584.0 532.0 714.0 80.0 552.0 444.0 334.0 367.92 294.0 160.08 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 36.0 301.0 41.0 232.0 31.0 74.0 20.0 0.0 0.0 0.0 0.0
+wide plan 0.0 0.0 0.0 24.0 0.0 0.0 -1.0
+wide shown none
+wide dose 0 -2 DOSE · NIOSH DAY
+wide historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+wide historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+wide items count 0
+wide value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB
+wide cap 0.29 0.79 1.0 1.0
+wide-ear layout 14.0 14.0 150.0 532.0 328.0 14.0 268.0 532.0 174.0 14.0 132.0 532.0 610.0 14.0 416.0 532.0 642.0 80.0 384.0 444.0 334.0 367.92 222.0 160.08 1040.0 14.0 226.0 532.0 1072.0 80.0 12.0 444.0 0.0 1.0 36.0 301.0 41.0 232.0 31.0 74.0 20.0 0.0 0.0 0.0 0.0
+wide-ear plan 1102.0 62.0 104.137695 30.0 238.57144 1.0 440.0 118.137695 139.1377 160.1377 181.1377
+wide-ear shown 79 80 80 77 86 9 31 1620 1920 [WA33 at 10 o'clock] [± 2 dB]
+wide-ear dose 9 1620 DOSE · NIOSH DAY
+wide-ear historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+wide-ear historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+wide-ear items count 2
+wide-ear items 0 0 Mid 500 Hz–2 kHz
+wide-ear items 1 1 −16.8 dB
+wide-ear value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB, +0.9 LU against the -14 LUFS target, about 79 dB A at the ear, dose 9 percent
+wide-ear cap 0.29 0.79 1.0 1.0
+tall-ear layout 14.0 14.0 150.0 672.0 328.0 14.0 250.0 672.0 174.0 14.0 132.0 672.0 592.0 14.0 254.0 672.0 624.0 80.0 222.0 584.0 334.0 367.92 204.0 300.08 860.0 14.0 226.0 672.0 892.0 80.0 12.0 584.0 0.0 1.0 36.0 301.0 41.0 232.0 31.0 74.0 20.0 0.0 0.0 0.0 0.0
+tall-ear plan 922.0 62.0 104.137695 30.0 288.57144 1.0 580.0 118.137695 139.1377 160.1377 181.1377
+tall-ear shown 79 80 80 77 86 9 31 1620 1920 [WA33 at 10 o'clock] [± 2 dB]
+tall-ear dose 31 1920 DOSE · WHO WEEK
+tall-ear historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+tall-ear historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+tall-ear items count 0
+tall-ear value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB, +9.9 LU against the -23 LUFS target, about 79 dB A at the ear, dose 31 percent
+tall-ear cap 0.29 0.79 1.0 1.0
+low-ear layout 14.0 14.0 150.0 352.0 328.0 14.0 250.0 352.0 174.0 14.0 132.0 352.0 592.0 14.0 0.0 352.0 592.0 80.0 32.0 264.0 334.0 306.84 204.0 41.16 592.0 14.0 226.0 352.0 624.0 80.0 12.0 264.0 0.0 1.0 22.0 301.0 41.0 232.0 31.0 74.0 20.0 0.0 0.0 0.0 0.0
+low-ear plan 654.0 62.0 97.0918 20.0 174.28572 1.0 260.0 111.0918 132.0918 181.28572 202.28572
+low-ear shown 79 80 80 77 86 9 31 1620 1920 [WA33 at 10 o'clock] [± 2 dB]
+low-ear dose 9 1620 DOSE · NIOSH DAY
+low-ear historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+low-ear historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+low-ear items count 0
+low-ear value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB, about 79 dB A at the ear, dose 9 percent
+low-ear cap 0.29 0.79 1.0 1.0
+strip layout 14.0 14.0 124.0 194.88 152.0 14.0 396.0 194.88 562.0 14.0 124.0 194.88 14.0 264.88 407.0 141.12 40.0 296.88 381.0 87.12 439.0 288.88 223.0 95.12 14.0 216.88 672.0 40.0 0.0 0.0 0.0 0.0 1.0 2.0 30.0 681.0 23.0 612.0 13.0 74.0 20.0 172.0 235.88 260.0 5.0
+strip plan 0.0 0.0 0.0 24.0 0.0 0.0 -1.0
+strip shown 79 80 80 77 86 9 31 1620 1920 [WA33 at 10 o'clock] [± 2 dB]
+strip dose 9 1620 DOSE · NIOSH DAY
+strip historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+strip historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+strip items count 2
+strip items 0 0 Bass 60–250 Hz
+strip items 1 1 −14.1 dB
+strip value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB, +2.9 LU against the -16 LUFS target, about 79 dB A at the ear, dose 9 percent
+strip cap 0.29 0.79 1.0 1.0
+row layout 14.0 14.0 124.0 192.0 152.0 14.0 396.0 192.0 562.0 14.0 124.0 192.0 14.0 220.0 672.0 10.0 40.0 208.0 646.0 44.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 3.0 30.0 681.0 23.0 612.0 13.0 74.0 20.0 0.0 0.0 0.0 0.0
+row plan 0.0 0.0 0.0 24.0 0.0 0.0 -1.0
+row shown 79 80 80 77 86 9 31 1620 1920 [WA33 at 10 o'clock] [± 2 dB]
+row dose 31 1920 DOSE · WHO WEEK
+row historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+row historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+row items count 0
+row value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB, about 79 dB A at the ear, dose 31 percent
+row cap 0.29 0.79 1.0 1.0
+compact layout 14.0 14.0 98.8 149.64 126.8 14.0 126.4 149.64 267.2 14.0 98.8 149.64 14.0 177.64 352.0 108.36 40.0 209.64 326.0 54.36 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 30.0 361.0 23.0 292.0 13.0 74.0 20.0 0.0 0.0 0.0 0.0
+compact plan 0.0 0.0 0.0 24.0 0.0 0.0 -1.0
+compact shown none
+compact dose 0 -2 DOSE · NIOSH DAY
+compact historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+compact historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+compact items count 2
+compact items 0 0 Presence 4–6 kHz
+compact items 1 1 −23.7 dB
+compact value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB, +0.9 LU against the -14 LUFS target
+compact cap 0.29 0.79 1.0 1.0
+narrow-ear layout 14.0 14.0 85.8 172.0 113.8 14.0 102.4 172.0 230.2 14.0 85.8 172.0 14.0 200.0 302.0 10.0 40.0 188.0 276.0 44.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 3.0 30.0 311.0 23.0 242.0 13.0 74.0 20.0 0.0 0.0 0.0 0.0
+narrow-ear plan 0.0 0.0 0.0 24.0 0.0 0.0 -1.0
+narrow-ear shown 79 80 80 77 86 9 31 1620 1920 [WA33 at 10 o'clock] [± 2 dB]
+narrow-ear dose 9 1620 DOSE · NIOSH DAY
+narrow-ear historyM -1000.0 -12.160226 -13.762169 -13.288094 -13.373238 -12.764008 -13.815595 -13.899531 -13.063974 -14.208728
+narrow-ear historyS -1000.0 -1000.0 -1000.0 -1000.0 -1000.0 -11.344242 -11.817364 -12.232923 -12.504284 -12.829471
+narrow-ear items count 0
+narrow-ear value Momentary -13.8 LUFS, short term -13.0 LUFS, integrated -13.1 LUFS, range no value, true peak max -0.3 dBTP, PLR 12.8 dB, PSR 11.2 dB, about 79 dB A at the ear, dose 9 percent
+narrow-ear cap 0.29 0.79 1.0 1.0
+deltaColor 0.3 0.92 0.62 1.0 0.8 0.86 0.95 1.0 0.3 0.92 0.62 1.0 0.8 0.86 0.95 1.0 0.8 0.86 0.95 1.0 1.0 0.65 0.15 1.0 1.0 0.65 0.15 1.0

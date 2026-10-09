@@ -1,0 +1,53 @@
+name: release
+# A tag "v1.2.3" builds the Windows programs and makes a release with one zip.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: The tag is the version of the program
+        shell: pwsh
+        run: |
+          # The updater compares the tag of a release with the version inside the program.
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} but Cargo.toml says $version" }
+      - run: cargo build --release -p joseon-app -p joseon-probe
+      - name: Make the zip
+        shell: pwsh
+        run: |
+          $name = "Joseon-${{ github.ref_name }}-windows-x64"
+          New-Item -ItemType Directory -Path "dist/$name/licenses" -Force | Out-Null
+          Copy-Item target/release/joseon.exe "dist/$name/Joseon.exe"
+          Copy-Item target/release/joseon-probe.exe "dist/$name/joseon-probe.exe"
+          Copy-Item packaging/README.txt "dist/$name/README.txt"
+          Copy-Item LICENSE "dist/$name/LICENSE.txt"
+          Copy-Item NOTICE "dist/$name/NOTICE.txt"
+          Copy-Item docs/third-party-*.md "dist/$name/licenses/"
+          # The programs start, and the window program draws: a broken build makes no release.
+          & "dist/$name/joseon-probe.exe" demo --seconds 1 | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { throw "the probe did not run" }
+          $p = Start-Process "dist/$name/Joseon.exe" -ArgumentList '--demo','--snapshot','snapshots','--seconds','1' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Joseon.exe did not draw" }
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
+          Get-FileHash "dist/$name.zip" -Algorithm SHA256 | Format-List
+          "ZIP=dist/$name.zip" >> $env:GITHUB_ENV
+      - name: Make the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" "$env:ZIP" --prerelease --title "Joseon for Windows ${{ github.ref_name }} (test build)" --notes-file packaging/RELEASE-NOTES.md

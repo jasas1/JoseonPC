@@ -1,0 +1,14 @@
+target/
+.DS_Store
+.claude-transcripts/
+logs/
+# Local only: review renders and working notes
+review-pictures/
+thal.json
+docs/reviews/
+docs/specs/
+docs/followups/
+tools/golden/.build/
+tools/golden/Sources/JoseonCore
+tools/golden/Sources/JoseonHeadphones
+tools/golden/Sources/JoseonRender
