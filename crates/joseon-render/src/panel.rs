@@ -101,6 +101,8 @@ pub struct PanelBase {
     pub ingest_count: u64,
     /// GPU seconds of the last completed command buffer (set by the owner).
     pub last_gpu_time: f64,
+    /// True while `encode` runs with a target: a pre-pass that only serves the picture of this frame may skip otherwise.
+    pub drawing_this_frame: bool,
 }
 
 impl PanelBase {
@@ -141,6 +143,7 @@ impl PanelBase {
             frame_delta: 1.0 / 60.0,
             ingest_count: 0,
             last_gpu_time: 0.0,
+            drawing_this_frame: false,
         }
     }
 
@@ -680,6 +683,7 @@ impl PanelRenderer {
         let scale = self.base.scale;
         self.base.arena.begin_frame();
         self.base.batch.begin_frame(&mut self.base.arena, scale);
+        self.base.drawing_this_frame = target.is_some();
         self.panel.encode_pre_pass(&mut self.base, encoder);
         let globals = Globals {
             view_size: [self.base.width, self.base.height],

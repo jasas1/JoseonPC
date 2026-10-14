@@ -6,8 +6,8 @@
 
 use crate::context::RenderContext;
 use crate::contracts::{
-    ComparisonMode, CursorHistorySlice, DoseStandard, LevelAxis, PanelCursor, PanelKind, SpectrumViewOptions,
-    VectorscopeMode,
+    ComparisonMode, CursorHistorySlice, DoseStandard, LevelAxis, PanelCursor, PanelKind, SpectrogramMode,
+    SpectrumViewOptions, VectorscopeMode,
 };
 use crate::meters::MetersPanel;
 use crate::palette::Theme;
@@ -52,6 +52,12 @@ pub struct Settings {
     pub increase_contrast: bool,
     pub spectrum_auto_range: bool,
     pub vectorscope_mode: VectorscopeMode,
+    /// The spectrogram as the flat picture or as the 3-D field.
+    pub spectrogram_mode: SpectrogramMode,
+    /// Waterfall: the camera turned by the user, as (yaw, elevation) in radians. `None` = the resting view.
+    pub waterfall_view: Option<(f32, f32)>,
+    /// Waterfall: the zoom (1 = the fitted view).
+    pub waterfall_zoom: f32,
     pub show_stress_bands: bool,
     pub target_lufs: Option<f32>,
     pub level_axis: LevelAxis,
@@ -81,6 +87,9 @@ impl Default for Settings {
             increase_contrast: false,
             spectrum_auto_range: true,
             vectorscope_mode: VectorscopeMode::Lissajous,
+            spectrogram_mode: SpectrogramMode::Flat,
+            waterfall_view: None,
+            waterfall_zoom: 1.0,
             show_stress_bands: true,
             target_lufs: None,
             level_axis: LevelAxis::DbFs,
@@ -209,6 +218,10 @@ impl Session {
         }
         if let Some((spectrogram, base)) = renderer.panel_as::<SpectrogramPanel>() {
             spectrogram.set_history_seconds(base, settings.history_seconds);
+            spectrogram.set_mode(base, settings.spectrogram_mode);
+            if settings.waterfall_view.is_some() || settings.waterfall_zoom != 1.0 {
+                spectrogram.set_view(base, settings.waterfall_view, settings.waterfall_zoom);
+            }
         }
         if let Some((meters, base)) = renderer.panel_as::<MetersPanel>() {
             meters.set_target_lufs(base, settings.target_lufs);

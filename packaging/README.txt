@@ -26,10 +26,20 @@ F or F11        full screen
 Ctrl+1 / 2 / 3  layout: Essential / Spectrum / Metering
 Ctrl+4          vectorscope or stereo placement
 Ctrl+5          show or hide the timeline
+Ctrl+6          the waterfall: the spectrogram as a 3-D field over the whole window
 Click           pin a cursor on a plot; Esc removes it
 Left / Right    move the cursor (Shift: one octave)
 
 The gaps between the cards drag with the mouse.
+
+The waterfall
+-------------
+The spectrogram card has a swap button (two arrows): one click shows the
+same history as a field of bars in perspective. Ctrl+6 shows that field
+over the whole window, with the timeline squashed under it (Ctrl+5 hides
+it). Drag the field to turn it, use the wheel or a pinch to zoom, double
+click it or click "Reset view" to come back. The pointer still names the
+frequency and the time under it, and a click still pins the cursor.
 
 Tray icon and mini strip
 ------------------------

@@ -17,6 +17,11 @@ pub const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 pub const SCOPE_ACCUM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
 pub const PAN_ACCUM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
+/// The folded field of the waterfall: one value per cell.
+pub const FIELD_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
+pub const WATERFALL_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+pub const WATERFALL_SAMPLES: u32 = 4;
+
 /// The bytes of curve values one draw can see: 16 384 values.
 pub const CURVE_WINDOW_BYTES: u64 = 16_384 * 4;
 
@@ -28,6 +33,8 @@ pub struct RenderContext {
     pub queue: wgpu::Queue,
     /// The name of the adapter and its backend, for the probe and the logs.
     pub adapter_info: String,
+    /// True for a software rasterizer (WARP, llvmpipe): a build server. Timing budgets do not hold there.
+    pub software: bool,
 
     pub shape_over: wgpu::RenderPipeline,
     pub shape_add: wgpu::RenderPipeline,
@@ -46,6 +53,10 @@ pub struct RenderContext {
     pub pan_composite: wgpu::RenderPipeline,
     /// A panel picture into a rectangle of a window. Group 1: `uniform_layout`, group 2: `lut_layout`.
     pub blit: wgpu::RenderPipeline,
+    /// The waterfall: the ring folded into the field, the bars with depth, the floor under them.
+    pub waterfall_fold: wgpu::RenderPipeline,
+    pub waterfall_bars: wgpu::RenderPipeline,
+    pub waterfall_floor: wgpu::RenderPipeline,
 
     pub globals_layout: wgpu::BindGroupLayout,
     pub curve_layout: wgpu::BindGroupLayout,
@@ -398,6 +409,80 @@ impl RenderContext {
             &[],
         );
 
+        // The waterfall. The fold is a quad like the others; the bars and the floor have depth and four samples.
+        let fold_module = module("waterfall fold", include_str!("shaders/waterfall_fold.wgsl"));
+        let waterfall_module = module("waterfall", include_str!("shaders/waterfall.wgsl"));
+        let waterfall_fold = pipeline(
+            "waterfall fold",
+            &fold_module,
+            "fold_vertex",
+            "fold_fragment",
+            (Blend::Replace, FIELD_FORMAT),
+            &[&globals_layout, &uniform_layout, &history_layout],
+            &[],
+        );
+        let pipeline_3d = |label: &str, vertex: &str, fragment: &str, topology, cull| {
+            let groups = [Some(&globals_layout), Some(&uniform_layout), Some(&history_layout)];
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(label),
+                bind_group_layouts: &groups,
+                immediate_size: 0,
+            });
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &waterfall_module,
+                    entry_point: Some(vertex),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: cull,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: WATERFALL_DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: WATERFALL_SAMPLES,
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &waterfall_module,
+                    entry_point: Some(fragment),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: TARGET_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let waterfall_bars = pipeline_3d(
+            "waterfall bars",
+            "waterfall_vertex",
+            "waterfall_fragment",
+            wgpu::PrimitiveTopology::TriangleList,
+            Some(wgpu::Face::Back),
+        );
+        let waterfall_floor = pipeline_3d(
+            "waterfall floor",
+            "floor_vertex",
+            "floor_fragment",
+            wgpu::PrimitiveTopology::TriangleStrip,
+            None,
+        );
+
         let ring_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ring"),
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -424,6 +509,7 @@ impl RenderContext {
 
         Some(Self {
             adapter_info: format!("{} ({:?})", info.name, info.backend),
+            software: info.device_type == wgpu::DeviceType::Cpu,
             instance,
             adapter,
             device,
@@ -444,6 +530,9 @@ impl RenderContext {
             pan_points,
             pan_composite,
             blit,
+            waterfall_fold,
+            waterfall_bars,
+            waterfall_floor,
             points_layout,
             globals_layout,
             curve_layout,

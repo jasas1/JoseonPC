@@ -22,7 +22,7 @@ come through "Check for Updates…" in the settings menu.
 Goal: the same features as Joseon on macOS.
 
 - High-resolution log spectrum, peak hold, long-term average
-- Scrolling spectrogram
+- Scrolling spectrogram, also as a 3-D waterfall: drag to turn it, scroll to zoom, Ctrl+6 for the whole window
 - Loudness: LUFS momentary / short-term / integrated, loudness range, true peak, PLR, clip count
 - Stereo field: vectorscope, phase correlation, balance and correlation per band
 - Headphone overlay: measured response (AutoEq data) and predicted at-ear spectrum, stress flags

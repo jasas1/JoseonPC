@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Main window layout presets (Ctrl+1 / Ctrl+2 / Ctrl+3).
+/// Main window layout presets (Ctrl+1 / Ctrl+2 / Ctrl+3, and Ctrl+6 for the waterfall: Ctrl+4 and Ctrl+5 are the
+/// placement and the timeline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LayoutPreset {
@@ -19,16 +20,19 @@ pub enum LayoutPreset {
     Essential,
     Spectrum,
     Metering,
+    /// The spectrogram card alone, as the 3-D field, over the whole panel area.
+    Waterfall,
 }
 
 impl LayoutPreset {
-    pub const ALL: [LayoutPreset; 3] = [Self::Essential, Self::Spectrum, Self::Metering];
+    pub const ALL: [LayoutPreset; 4] = [Self::Essential, Self::Spectrum, Self::Metering, Self::Waterfall];
 
     pub fn title(self) -> &'static str {
         match self {
             Self::Essential => "Essential",
             Self::Spectrum => "Spectrum",
             Self::Metering => "Metering",
+            Self::Waterfall => "Waterfall",
         }
     }
 
@@ -37,6 +41,17 @@ impl LayoutPreset {
             Self::Essential => "essential",
             Self::Spectrum => "spectrum",
             Self::Metering => "metering",
+            Self::Waterfall => "waterfall",
+        }
+    }
+
+    /// The key that chooses it, as a menu writes it.
+    pub fn shortcut(self) -> &'static str {
+        match self {
+            Self::Essential => "Ctrl+1",
+            Self::Spectrum => "Ctrl+2",
+            Self::Metering => "Ctrl+3",
+            Self::Waterfall => "Ctrl+6",
         }
     }
 }
@@ -148,6 +163,8 @@ pub struct AppSettings {
     pub show_average: bool,
     pub show_headphone_overlay: bool,
     pub spectrogram_history_seconds: i32,
+    /// The spectrogram card shows the 3-D waterfall instead of the flat picture. The "Waterfall" layout forces it on.
+    pub spectrogram_waterfall: bool,
 
     // Session timeline strip
     /// The strip under the panels of the main window (Ctrl+5).
@@ -196,6 +213,8 @@ pub struct AppSettings {
     pub window_size: [f64; 2],
     /// Height the user gave the timeline strip, in points.
     pub timeline_strip_height: f64,
+    /// The strip under the "Waterfall" layout: squashed by default (loudness and peak only), with its own height.
+    pub waterfall_strip_height: f64,
     /// The shares of the panes of each split the user dragged, by the key of the split.
     pub splits: BTreeMap<String, Vec<f64>>,
 }
@@ -218,6 +237,7 @@ impl Default for AppSettings {
             show_average: true,
             show_headphone_overlay: true,
             spectrogram_history_seconds: 20,
+            spectrogram_waterfall: false,
             show_timeline: true,
             timeline_window_seconds: 900,
             timeline_show_bands: true,
@@ -241,6 +261,7 @@ impl Default for AppSettings {
             compensate_volume_always: false,
             window_size: [1280.0, 800.0],
             timeline_strip_height: 140.0,
+            waterfall_strip_height: 100.0,
             splits: BTreeMap::new(),
         }
     }
@@ -288,6 +309,9 @@ impl AppSettings {
             };
         if !(100.0..=300.0).contains(&self.timeline_strip_height) {
             self.timeline_strip_height = d.timeline_strip_height;
+        }
+        if !(100.0..=300.0).contains(&self.waterfall_strip_height) {
+            self.waterfall_strip_height = d.waterfall_strip_height;
         }
         if self
             .mini_strip_position

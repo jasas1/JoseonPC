@@ -87,6 +87,14 @@ pub enum DoseStandard {
     WhoWeekly,
 }
 
+/// The spectrogram as the scrolling picture or as the 3-D field (a waterfall). A switch keeps the history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SpectrogramMode {
+    #[default]
+    Flat,
+    Waterfall,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum VectorscopeMode {
     /// Goniometer: the L / R sample cloud, mid up, side across.

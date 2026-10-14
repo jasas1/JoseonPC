@@ -295,6 +295,7 @@ impl App {
                 (true, "1") => Key::Preset(LayoutPreset::Essential),
                 (true, "2") => Key::Preset(LayoutPreset::Spectrum),
                 (true, "3") => Key::Preset(LayoutPreset::Metering),
+                (true, "6") => Key::Preset(LayoutPreset::Waterfall),
                 (true, "4") => Key::TogglePlacement,
                 (true, "5") => Key::ToggleTimeline,
                 (false, "r") => Key::Reset,
@@ -802,6 +803,18 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 let action = self.shell.scene.pointer_context();
+                self.act(action);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let points = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => y * 8.0,
+                    winit::event::MouseScrollDelta::PixelDelta(p) => p.y as f32,
+                };
+                let action = self.shell.scene.scrolled(points);
+                self.act(action);
+            }
+            WindowEvent::PinchGesture { delta, .. } => {
+                let action = self.shell.scene.pinched(1.0 + delta as f32);
                 self.act(action);
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {

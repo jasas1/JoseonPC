@@ -26,6 +26,16 @@ pub struct ShapeInstance {
     pub params: [f32; 4],
 }
 
+/// A picture into a rectangle: the `blit` pipeline (`shaders/blit.wgsl`).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+pub struct BlitUniforms {
+    pub rect: [f32; 4],
+    pub radius: f32,
+    pub alpha: f32,
+    pub pad: [f32; 2],
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct CurveUniforms {

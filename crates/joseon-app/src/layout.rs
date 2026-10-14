@@ -310,6 +310,15 @@ pub fn window_layout(width: f32, height: f32, banners: usize, settings: &AppSett
             },
             200.0 + GAP + 140.0,
         ),
+        // The field alone. 200 pt keeps the near row and the frequency labels readable.
+        LayoutPreset::Waterfall => (
+            Split {
+                key: "waterfall.main",
+                side_by_side: false,
+                panes: vec![card(1.0, 200.0, Spectrogram)],
+            },
+            200.0,
+        ),
         LayoutPreset::Metering => (
             Split {
                 key: "metering.main",
@@ -332,9 +341,15 @@ pub fn window_layout(width: f32, height: f32, banners: usize, settings: &AppSett
     };
     // The panels above come first. When the window cannot give them their minimum and the strip its wish, the
     // strip shrinks down to 100 pt; with less room than that it hides, and the panels get the whole area.
+    // Under the waterfall the strip starts squashed (loudness and peak only) and remembers its own height.
+    let wanted = if preset == LayoutPreset::Waterfall {
+        settings.waterfall_strip_height
+    } else {
+        settings.timeline_strip_height
+    } as f32;
     let strip = settings
         .show_timeline
-        .then(|| strip_height(body.h, panels_minimum, settings.timeline_strip_height as f32))
+        .then(|| strip_height(body.h, panels_minimum, wanted))
         .flatten();
     let mut panels = body;
     if let Some(strip) = strip {
@@ -515,6 +530,33 @@ mod tests {
                 assert_tiles(&layout(w, h, |s| s.layout_preset = preset));
             }
         }
+    }
+
+    #[test]
+    fn the_waterfall_layout_is_the_spectrogram_card_over_a_squashed_strip() {
+        let l = layout(1280.0, 800.0, |s| s.layout_preset = LayoutPreset::Waterfall);
+        assert_eq!(l.key, "waterfall+timeline");
+        assert_tiles(&l);
+        let field = l.card(Card::Spectrogram).unwrap();
+        let strip = l.card(Card::Timeline).unwrap();
+        assert_eq!(strip.h, 100.0, "squashed by default");
+        assert!(field.h > 400.0 && field.w == l.body.w);
+        assert!(l.card(Card::Spectrum).is_none() && l.card(Card::Meters).is_none());
+        // Its own height: the strip of the other layouts keeps its 140 pt.
+        let own = layout(1280.0, 800.0, |s| {
+            s.layout_preset = LayoutPreset::Waterfall;
+            s.waterfall_strip_height = 180.0;
+        });
+        assert_eq!(own.card(Card::Timeline).unwrap().h, 180.0);
+        let essential = layout(1280.0, 800.0, |s| s.waterfall_strip_height = 180.0);
+        assert_eq!(essential.card(Card::Timeline).unwrap().h, 140.0);
+        // Without the strip the field has the whole body.
+        let whole = layout(1280.0, 800.0, |s| {
+            s.layout_preset = LayoutPreset::Waterfall;
+            s.show_timeline = false;
+        });
+        assert_eq!(whole.key, "waterfall");
+        assert_eq!(whole.card(Card::Spectrogram).unwrap().h, whole.body.h);
     }
 
     #[test]

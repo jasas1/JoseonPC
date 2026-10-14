@@ -10,6 +10,7 @@ mod spectrum;
 mod text;
 mod timeline;
 mod vectorscope;
+mod waterfall;
 
 use crate::context::RenderContext;
 use std::sync::Arc;

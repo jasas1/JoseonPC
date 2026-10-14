@@ -57,6 +57,88 @@ fn pixel(rgba: &[u8], width: u32, x: f32, y: f32) -> [u8; 3] {
     [rgba[i], rgba[i + 1], rgba[i + 2]]
 }
 
+/// Ctrl+6 shows the field alone over a squashed strip; a drag turns it, a double click and the button reset it; the
+/// swap button of the card toggles the field in the other layouts.
+#[test]
+fn the_waterfall_turns_with_a_drag_and_resets() {
+    let Some(mut scene) = scene(AppSettings::default(), 1280.0, 800.0) else {
+        return;
+    };
+    assert_eq!(scene.key(Key::Preset(LayoutPreset::Waterfall)), Action::SettingsChanged);
+    assert_eq!(scene.settings().layout_preset, LayoutPreset::Waterfall);
+    let layout = scene.layout().clone();
+    assert_eq!(layout.card(Card::Timeline).unwrap().h, 100.0, "the strip is squashed");
+    let card = layout.card(Card::Spectrogram).unwrap();
+    assert!(card.h > 400.0);
+    save(&mut scene, "window-waterfall-rest.png");
+    // A press and a drag across a quarter of the card: the view is turned, the reset button shows.
+    let (x0, y0) = (card.mid_x(), card.mid_y());
+    scene.pointer_moved(Some([x0, y0]));
+    assert_eq!(scene.pointer_pressed(), Action::None);
+    scene.pointer_moved(Some([x0 + card.w / 4.0, y0 + 10.0]));
+    assert_eq!(scene.pointer_released(), Action::None);
+    let turned = scene
+        .cards_for_testing()
+        .iter()
+        .find(|(c, _)| *c == Card::Spectrogram)
+        .map(|(_, custom)| *custom)
+        .unwrap();
+    assert!(turned, "the drag turned the view");
+    let (_, rgba_turned) = save(&mut scene, "window-waterfall-turned.png");
+    // The reset button is left of "...", a hand shows over it, and a click resets the view.
+    let reset = crate::scene::reset_button(card, false);
+    scene.pointer_moved(Some([reset.mid_x(), reset.mid_y()]));
+    assert_eq!(scene.pointer_shape(), PointerShape::Hand);
+    scene.pointer_pressed();
+    scene.pointer_released();
+    assert!(!scene
+        .cards_for_testing()
+        .iter()
+        .any(|(c, custom)| *c == Card::Spectrogram && *custom));
+    let (_, rgba_rest) = save(&mut scene, "window-waterfall-reset.png");
+    assert_ne!(rgba_turned, rgba_rest);
+    // A press without a drag on a cell of the field pins the cursor there; a second press at once resets a turned view.
+    let [cx, cy] = scene.waterfall_point_for_testing(1000.0, 2.0).unwrap();
+    scene.pointer_moved(Some([cx, cy]));
+    scene.pointer_pressed();
+    scene.pointer_released();
+    let pinned = scene.cursor().unwrap();
+    assert!(
+        pinned.is_pinned && (pinned.frequency_hz / 1000.0).log2().abs() < 0.2,
+        "a click pins: {pinned:?}"
+    );
+    scene.pointer_pressed();
+    scene.pointer_moved(Some([cx + 200.0, cy]));
+    scene.pointer_released();
+    scene.pointer_moved(Some([cx + 200.0, cy]));
+    scene.pointer_pressed();
+    scene.pointer_released();
+    scene.pointer_pressed();
+    scene.pointer_released();
+    assert!(
+        !scene
+            .cards_for_testing()
+            .iter()
+            .any(|(c, custom)| *c == Card::Spectrogram && *custom),
+        "a double click resets"
+    );
+    // The scroll wheel zooms: a custom view again.
+    assert_eq!(scene.scrolled(40.0), Action::None);
+    assert!(scene
+        .cards_for_testing()
+        .iter()
+        .any(|(c, custom)| *c == Card::Spectrogram && *custom));
+    // Back in "Essential" the spectrogram card has the swap button: one click shows the field in the card.
+    scene.key(Key::Preset(LayoutPreset::Essential));
+    let card = scene.layout().card(Card::Spectrogram).unwrap();
+    let swap = crate::scene::swap_button(card);
+    scene.pointer_moved(Some([swap.mid_x(), swap.mid_y()]));
+    assert_eq!(scene.pointer_shape(), PointerShape::Hand);
+    assert_eq!(scene.pointer_pressed(), Action::SettingsChanged);
+    assert!(scene.settings().spectrogram_waterfall);
+    save(&mut scene, "window-essential-waterfall-card.png");
+}
+
 #[test]
 fn every_preset_draws_its_cards() {
     for preset in LayoutPreset::ALL {
@@ -69,7 +151,8 @@ fn every_preset_draws_its_cards() {
         };
         let (width, rgba) = save(&mut scene, &format!("window-{}.png", preset.key()));
         let layout = scene.layout().clone();
-        assert!(layout.cards.len() >= 3, "{preset:?}");
+        let fewest = if preset == LayoutPreset::Waterfall { 2 } else { 3 };
+        assert!(layout.cards.len() >= fewest, "{preset:?}");
         for (card, rect) in &layout.cards {
             // The gap beside a card has the window color; inside the card something lighter is drawn.
             let outside = pixel(&rgba, width, rect.x - 4.0, rect.mid_y());
@@ -77,10 +160,16 @@ fn every_preset_draws_its_cards() {
                 outside.iter().all(|c| *c < 30),
                 "{preset:?} {card:?}: the gap is dark: {outside:?}"
             );
+            // The field of the waterfall stands in the lower part of its card: its middle row is the dark far end.
+            let y = if preset == LayoutPreset::Waterfall && *card == Card::Spectrogram {
+                rect.y + rect.h * 0.78
+            } else {
+                rect.mid_y()
+            };
             let mut lit = 0;
             let mut x = rect.x + 20.0;
             while x < rect.max_x() - 20.0 {
-                let p = pixel(&rgba, width, x, rect.mid_y());
+                let p = pixel(&rgba, width, x, y);
                 if p.iter().map(|c| *c as u32).sum::<u32>() > 110 {
                     lit += 1;
                 }

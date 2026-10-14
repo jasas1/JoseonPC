@@ -13,9 +13,10 @@
 //! 16-bit normalized as on macOS.
 
 pub mod aligner;
+pub mod waterfall;
 
 use crate::axis::{LogAxis, ResampleTable};
-use crate::contracts::{CursorHistorySlice, PanelCursor, PanelKind};
+use crate::contracts::{CursorHistorySlice, PanelCursor, PanelKind, SpectrogramMode};
 use crate::cursor::{self, header, CursorReadoutItem, Tone};
 use crate::fmt;
 use crate::gpu::Color;
@@ -83,6 +84,9 @@ struct Gpu {
 }
 
 pub struct SpectrogramPanel {
+    /// The flat picture or the 3-D field. A switch keeps the history.
+    mode: SpectrogramMode,
+    pub waterfall: waterfall::WaterfallState,
     history_seconds: f64,
     /// At or under this level a cell is background: no navy haze over silence or the noise floor.
     pub floor_db: f32,
@@ -97,6 +101,8 @@ pub struct SpectrogramPanel {
     needs_clear: bool,
     plot: Rect,
     legend: Rect,
+    /// Pixels per point of the last layout.
+    plot_scale: f32,
 
     // Automatic top of the color scale.
     top_db: f32,
@@ -181,6 +187,8 @@ impl SpectrogramPanel {
             max_hz: 20_000.0,
         };
         Self {
+            mode: SpectrogramMode::Flat,
+            waterfall: waterfall::WaterfallState::new(),
             history_seconds: 20.0,
             floor_db: -75.0,
             gamma: 1.0,
@@ -191,6 +199,7 @@ impl SpectrogramPanel {
             needs_clear: true,
             plot: Rect::default(),
             legend: Rect::default(),
+            plot_scale: 2.0,
             top_db: -12.0,
             top_target: -12.0,
             top_snapped: false,
@@ -225,6 +234,30 @@ impl SpectrogramPanel {
         self.history_seconds
     }
 
+    pub fn mode(&self) -> SpectrogramMode {
+        self.mode
+    }
+
+    pub fn is_waterfall(&self) -> bool {
+        self.mode == SpectrogramMode::Waterfall
+    }
+
+    /// The flat picture or the field. The history, the automatic top and the cursor stay.
+    pub fn set_mode(&mut self, base: &mut PanelBase, mode: SpectrogramMode) {
+        if mode != self.mode {
+            self.mode = mode;
+            base.needs_display = true;
+            if base.width > 1.0 {
+                self.layout_changed(base);
+            }
+        }
+    }
+
+    /// The scale of the last layout, for the field's pictures.
+    fn plot_scale_of(base: &PanelBase) -> f32 {
+        base.scale
+    }
+
     pub fn set_history_seconds(&mut self, base: &mut PanelBase, seconds: f64) {
         if seconds != self.history_seconds {
             self.history_seconds = seconds;
@@ -244,7 +277,7 @@ impl SpectrogramPanel {
         self.latency_seconds
     }
 
-    fn compact(base: &PanelBase) -> bool {
+    pub(crate) fn compact(base: &PanelBase) -> bool {
         base.width < 380.0 || base.height < 170.0
     }
 
@@ -502,6 +535,11 @@ impl SpectrogramPanel {
 
     /// Level of the history cell under a point of the plot, `None` where nothing was recorded yet.
     pub fn history_level_at(&self, point: [f32; 2]) -> Option<f32> {
+        if self.is_waterfall() {
+            let c = self.waterfall_cursor_at(point)?;
+            let back = self.columns_back(c.seconds_ago?)?;
+            return self.history_level(back, c.frequency_hz);
+        }
         if !(self.plot.contains_point(point[0], point[1]) && self.plot.w > 1.0) {
             return None;
         }
@@ -590,9 +628,14 @@ impl Panel for SpectrogramPanel {
         true
     }
 
-    /// The history scrolls with time, also while the source repeats one frame, until nothing visible is left.
+    /// The history scrolls with time, also while the source repeats one frame, until nothing visible is left. The
+    /// camera of the waterfall moves on its own.
     fn is_animating(&self) -> bool {
-        self.pending_count > 0
+        self.pending_count > 0 || self.waterfall_animating()
+    }
+
+    fn idle(&mut self, base: &mut PanelBase, dt: f64) {
+        self.step_camera(base, dt);
     }
 
     fn palette_changed(&mut self, base: &mut PanelBase) {
@@ -600,6 +643,7 @@ impl Panel for SpectrogramPanel {
         if let Some(gpu) = &mut self.gpu {
             gpu.group = None;
         }
+        self.waterfall_palette_changed(base);
     }
 
     fn layout_changed(&mut self, base: &mut PanelBase) {
@@ -622,6 +666,8 @@ impl Panel for SpectrogramPanel {
             (base.height - top - bottom).max(10.0),
         );
         self.legend = Rect::new(self.plot.max_x() + 10.0, self.plot.min_y(), 14.0, self.plot.h);
+        self.plot_scale = Self::plot_scale_of(base);
+        self.waterfall_layout_changed(base);
     }
 
     fn static_signature(&mut self, base: &PanelBase) -> u64 {
@@ -630,7 +676,16 @@ impl Panel for SpectrogramPanel {
             .add(self.history_seconds.to_bits())
             .add_f32(self.floor_db)
             .add((self.top_db * 4.0) as i64)
-            .add((self.latency_seconds * 10.0) as i64);
+            .add((self.latency_seconds * 10.0) as i64)
+            .add(self.mode == SpectrogramMode::Waterfall);
+        if self.is_waterfall() {
+            // The labels sit on the field: they move with the camera, laid out again when it turned a quarter degree.
+            let w = &self.waterfall;
+            h.add((w.yaw * 230.0) as i64)
+                .add((w.elevation * 230.0) as i64)
+                .add(w.depth)
+                .add((w.zoom * 50.0) as i64);
+        }
         h.finish()
     }
 
@@ -772,6 +827,7 @@ impl Panel for SpectrogramPanel {
             self.mirror_head = (self.mirror_head + 1) % COLUMNS;
             self.emitted_columns += 1;
         }
+        self.step_camera(base, dt);
     }
 
     fn encode_pre_pass(&mut self, base: &mut PanelBase, encoder: &mut wgpu::CommandEncoder) {
@@ -816,9 +872,6 @@ impl Panel for SpectrogramPanel {
             });
             self.needs_clear = false;
         }
-        if self.pending_count == 0 {
-            return;
-        }
         let mut column = [0u16; ROWS];
         for i in 0..self.pending_count {
             let source = &self.pending[i * ROWS..(i + 1) * ROWS];
@@ -851,9 +904,20 @@ impl Panel for SpectrogramPanel {
             self.head = (self.head + 1) % COLUMNS;
         }
         self.pending_count = 0;
+        // The field and its picture serve one frame: only when this encode draws (an offscreen feed of history does not).
+        if self.is_waterfall() && base.drawing_this_frame {
+            let ring_view = self.gpu.as_ref().map(|g| g.ring_view.clone());
+            if let Some(ring_view) = ring_view {
+                self.encode_waterfall(base, encoder, &ring_view);
+            }
+        }
     }
 
     fn draw(&mut self, base: &mut PanelBase, pass: &mut wgpu::RenderPass<'_>) {
+        if self.is_waterfall() {
+            self.draw_waterfall(base, pass);
+            return;
+        }
         let p = base.palette;
         let compact = Self::compact(base);
         let (px, py, pw, ph) = (self.plot.x, self.plot.y, self.plot.w, self.plot.h);
@@ -991,6 +1055,10 @@ impl Panel for SpectrogramPanel {
     }
 
     fn draw_static(&mut self, base: &PanelBase, o: &mut OverlayContext) {
+        if self.is_waterfall() {
+            self.draw_waterfall_static(base, o);
+            return;
+        }
         let p = base.palette;
         let compact = Self::compact(base);
         let small = fonts::mono(if compact { 10.0 } else { 11.0 }, Weight::Regular);
@@ -1097,6 +1165,9 @@ impl Panel for SpectrogramPanel {
     }
 
     fn cursor_at(&self, _base: &PanelBase, point: [f32; 2]) -> Option<PanelCursor> {
+        if self.is_waterfall() {
+            return self.waterfall_cursor_at(point);
+        }
         if !(self.plot.contains_point(point[0], point[1]) && self.plot.w > 1.0) {
             return None;
         }
@@ -1111,6 +1182,9 @@ impl Panel for SpectrogramPanel {
     }
 
     fn is_on_cursor(&self, base: &PanelBase, point: [f32; 2]) -> bool {
+        if self.is_waterfall() {
+            return self.waterfall_is_on_cursor(base, point);
+        }
         let Some(c) = base.cursor.filter(|_| self.plot.contains_point(point[0], point[1])) else {
             return false;
         };
@@ -1152,6 +1226,9 @@ impl Panel for SpectrogramPanel {
 
     fn hover_label(&mut self, base: &PanelBase) -> Option<(Vec<String>, [f32; 2])> {
         let hv = base.hover.filter(|hv| self.plot.contains_point(hv[0], hv[1]))?;
+        if self.is_waterfall() && self.field_cell(hv).is_none() {
+            return None;
+        }
         if base.cursor_linked {
             if !self.shows_pointer_readout(base) {
                 return None;
@@ -1166,8 +1243,13 @@ impl Panel for SpectrogramPanel {
                 .map_or(String::new(), |ago| format!("{}   ", cursor::ago(ago)));
             return Some((vec![first, time + &self.level_text(base, &c)], hv));
         }
-        let hz = self.axis.frequency((self.plot.max_y() - hv[1]) / self.plot.h);
-        let ago = ((self.plot.max_x() - hv[0]) / self.plot.w) as f64 * self.history_seconds + self.latency_seconds;
+        let (hz, ago) = match self.waterfall_cursor_at(hv).filter(|_| self.is_waterfall()) {
+            Some(c) => (c.frequency_hz, c.seconds_ago.unwrap_or(self.latency_seconds)),
+            None => (
+                self.axis.frequency((self.plot.max_y() - hv[1]) / self.plot.h),
+                ((self.plot.max_x() - hv[0]) / self.plot.w) as f64 * self.history_seconds + self.latency_seconds,
+            ),
+        };
         let mut first = format!("cursor  {}", fmt::hz(hz));
         if let Some((name, cents)) = fmt::note(hz) {
             first += &format!("   {name} {}", fmt::cents(cents));
@@ -1184,7 +1266,11 @@ impl Panel for SpectrogramPanel {
     }
 
     fn accessibility_label(&self) -> String {
-        "Spectrogram".to_string()
+        if self.is_waterfall() {
+            "Spectrogram, 3-D waterfall".to_string()
+        } else {
+            "Spectrogram".to_string()
+        }
     }
 
     fn accessibility_value(&self, base: &PanelBase) -> String {

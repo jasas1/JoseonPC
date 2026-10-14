@@ -18,7 +18,7 @@ use crate::stress_strip::{self, StripLayout};
 use bytemuck::{Pod, Zeroable};
 use joseon_core::contracts::StressSeverity;
 use joseon_core::contracts::{AnalysisFrame, SessionSnapshot};
-use joseon_render::contracts::{PanelCursor, PanelCursorLink, PanelKind, VectorscopeMode};
+use joseon_render::contracts::{PanelCursor, PanelCursorLink, PanelKind, SpectrogramMode, VectorscopeMode};
 use joseon_render::cursor;
 use joseon_render::fmt;
 use joseon_render::gpu::Color;
@@ -127,6 +127,12 @@ pub fn swap_button(card: Rect) -> Rect {
     Rect::new(options.x - 4.0 - 22.0, options.y, 22.0, 22.0)
 }
 
+/// "Reset view" of the waterfall: left of the swap button (or of "..." when the layout forces the field).
+pub fn reset_button(card: Rect, swaps: bool) -> Rect {
+    let next = if swaps { swap_button(card) } else { options_button(card) };
+    Rect::new(next.x - 4.0 - 22.0, next.y, 22.0, 22.0)
+}
+
 /// The settings button of the header, left of the layout buttons.
 pub fn settings_button(width: f32) -> Rect {
     let first = preset_buttons(width)[0].1;
@@ -171,6 +177,8 @@ struct ChromeCard {
     dimmed: bool,
     /// The card has a second view: the swap button shows.
     swaps: bool,
+    /// The waterfall is turned or zoomed: the reset button shows.
+    reset: bool,
 }
 
 /// The layer under and over the panel pictures: card frames, titles, the header.
@@ -186,14 +194,14 @@ struct ChromePanel {
     strip: StripLayout,
 }
 
-/// The three layout buttons at the right of the header.
-pub fn preset_buttons(width: f32) -> [(LayoutPreset, Rect); 3] {
-    let (w, h, gap) = (84.0, 24.0, 4.0);
+/// The four layout buttons at the right of the header.
+pub fn preset_buttons(width: f32) -> [(LayoutPreset, Rect); 4] {
+    let (w, h, gap) = (76.0, 24.0, 4.0);
     let right = width - 14.0;
     let y = (layout::HEADER_HEIGHT - h) / 2.0;
-    let mut out = [(LayoutPreset::Essential, Rect::default()); 3];
+    let mut out = [(LayoutPreset::Essential, Rect::default()); 4];
     for (i, preset) in LayoutPreset::ALL.into_iter().enumerate() {
-        let x = right - (3 - i) as f32 * w - (2 - i) as f32 * gap;
+        let x = right - (4 - i) as f32 * w - (3 - i) as f32 * gap;
         out[i] = (preset, Rect::new(x, y, w, h));
     }
     out
@@ -409,7 +417,9 @@ impl Panel for ChromePanel {
             // The text beside the title shows whole or not at all.
             if let Some(state) = &card.state {
                 let font = fonts::ui(11.0, Weight::Regular);
-                let room = if card.swaps {
+                let room = if card.reset {
+                    reset_button(card.rect, card.swaps).x
+                } else if card.swaps {
                     swap_button(card.rect).x
                 } else {
                     options_button(card.rect).x
@@ -417,6 +427,15 @@ impl Panel for ChromePanel {
                 if x + w + 10.0 + o.measure(state, &font, 0.0) <= room - 6.0 {
                     o.text(state, x + w + 10.0, y, &font, secondary, HAlign::Left, VAlign::Middle);
                 }
+            }
+            // The reset button of the waterfall: a circling arrow.
+            if card.reset {
+                let b = reset_button(card.rect, card.swaps);
+                let (cx, cy) = (b.mid_x(), b.mid_y());
+                o.arc([cx, cy], 5.5, 0.6, 5.9, secondary, 1.3);
+                let tip = [cx + 5.5 * 0.6f32.sin(), cy - 5.5 * 0.6f32.cos()];
+                o.line(tip, [tip[0] - 4.0, tip[1] - 1.5], secondary, 1.3, &[]);
+                o.line(tip, [tip[0] + 0.5, tip[1] - 4.5], secondary, 1.3, &[]);
             }
             // The swap button: two arrows, one to each side.
             if card.swaps {
@@ -680,6 +699,10 @@ pub struct Scene {
     /// The divider the pointer drags.
     dragging: Option<Divider>,
     dragging_strip: bool,
+    /// The waterfall the pointer turns: the last pointer position and whether it moved yet.
+    orbit: Option<([f32; 2], bool)>,
+    /// The last press on the waterfall, for the double click that resets the view.
+    last_press: Option<(std::time::Instant, [f32; 2])>,
     high_contrast: bool,
     names: CurveNames,
     update: crate::update::Status,
@@ -750,6 +773,8 @@ impl Scene {
             pointer: None,
             dragging: None,
             dragging_strip: false,
+            orbit: None,
+            last_press: None,
             high_contrast: false,
             names: CurveNames::default(),
             update: crate::update::Status::default(),
@@ -870,8 +895,18 @@ impl Scene {
             panel.set_options(base, s.spectrum_view_options());
             panel.set_auto_range(base, s.spectrum_auto_range);
         }
+        // The "Waterfall" layout forces the field; the setting itself stays what it was.
+        let field = s.layout_preset == LayoutPreset::Waterfall || s.spectrogram_waterfall;
         if let Some((panel, base)) = self.card_mut(Card::Spectrogram).renderer.panel_as::<SpectrogramPanel>() {
             panel.set_history_seconds(base, s.spectrogram_history_seconds as f64);
+            panel.set_mode(
+                base,
+                if field {
+                    SpectrogramMode::Waterfall
+                } else {
+                    SpectrogramMode::Flat
+                },
+            );
         }
         let mode = if s.stereo_placement_mode {
             VectorscopeMode::PanSpectrum
@@ -1044,6 +1079,8 @@ impl Scene {
 
     fn update_chrome(&mut self) {
         let placeholder_card = self.placeholder_card();
+        let forced_field = self.settings.layout_preset == LayoutPreset::Waterfall;
+        let custom_view = self.spectrogram().is_some_and(|p| p.has_custom_view());
         let mut cards = Vec::new();
         for view in &self.cards {
             let Some((rect, panel)) = view.rects else { continue };
@@ -1059,7 +1096,8 @@ impl Scene {
                 plate: text.filter(|_| !beside_title),
                 group: view.group.clone(),
                 dimmed: self.frozen,
-                swaps: view.card == Card::Vectorscope,
+                swaps: view.card == Card::Vectorscope || (view.card == Card::Spectrogram && !forced_field),
+                reset: view.card == Card::Spectrogram && custom_view,
             });
         }
         let banners: Vec<(Rect, Banner)> = self
@@ -1160,8 +1198,36 @@ impl Scene {
             let wanted = (self.layout.body.max_y() - y - layout::GAP / 2.0)
                 .max(layout::STRIP_HEIGHT_RANGE.0)
                 .min(layout::STRIP_HEIGHT_RANGE.1);
-            self.settings.timeline_strip_height = wanted.round() as f64;
+            if self.settings.layout_preset == LayoutPreset::Waterfall {
+                self.settings.waterfall_strip_height = wanted.round() as f64;
+            } else {
+                self.settings.timeline_strip_height = wanted.round() as f64;
+            }
             self.relayout();
+            return Action::None;
+        }
+        // A drag over the waterfall turns the camera: a drag across the panel is half a turn, up and down tilt it.
+        if let (Some((last, moved)), Some([x, y])) = (self.orbit, position) {
+            let (dx, dy) = (x - last[0], y - last[1]);
+            if !moved && dx.abs() + dy.abs() < 2.0 {
+                return Action::None;
+            }
+            self.orbit = Some(([x, y], true));
+            let size = self
+                .card_mut(Card::Spectrogram)
+                .rects
+                .map(|(_, panel)| (panel.w, panel.h));
+            if let (Some((w, h)), Some((panel, base))) = (
+                size,
+                self.card_mut(Card::Spectrogram).renderer.panel_as::<SpectrogramPanel>(),
+            ) {
+                panel.orbit(
+                    base,
+                    -dx / w.max(1.0) * std::f32::consts::PI,
+                    dy / h.max(1.0) * (std::f32::consts::PI / 2.0),
+                );
+            }
+            self.update_chrome();
             return Action::None;
         }
         let over = position.and_then(|[x, y]| self.panel_at(x, y));
@@ -1205,7 +1271,8 @@ impl Scene {
         }
         if preset_buttons(self.width).iter().any(|(_, r)| r.contains_point(x, y))
             || self.menu_button_at(x, y).is_some()
-            || self.swap_button_at(x, y)
+            || self.swap_button_at(x, y).is_some()
+            || self.reset_button_at(x, y)
             || stress_strip::hit(&self.strip, x, y).is_some()
         {
             return PointerShape::Hand;
@@ -1237,8 +1304,15 @@ impl Scene {
         if let Some(target) = self.menu_button_at(x, y) {
             return Action::OpenMenu(target);
         }
-        if self.swap_button_at(x, y) {
-            return self.run(Command::StereoPlacement(!self.settings.stereo_placement_mode));
+        match self.swap_button_at(x, y) {
+            Some(Card::Spectrogram) => {
+                return self.run(Command::SpectrogramWaterfall(!self.settings.spectrogram_waterfall));
+            }
+            Some(_) => return self.run(Command::StereoPlacement(!self.settings.stereo_placement_mode)),
+            None => {}
+        }
+        if self.reset_button_at(x, y) {
+            return self.run(Command::ResetWaterfallView);
         }
         // The strip: a chip shows its detail (a second click hides it); the rest opens the headphone menu.
         let open = self.open_chip.take();
@@ -1274,6 +1348,26 @@ impl Scene {
                 return Action::ResetMeasurement;
             }
         }
+        // The waterfall: a press starts a drag that turns the view; the pin waits for the release without a drag.
+        // A second press within 0.4 s and 6 pt resets the view.
+        if view.card == Card::Spectrogram
+            && view
+                .renderer
+                .panel_as::<SpectrogramPanel>()
+                .is_some_and(|(p, _)| p.is_waterfall())
+        {
+            let now = std::time::Instant::now();
+            let double = self.last_press.is_some_and(|(at, p)| {
+                now.duration_since(at).as_secs_f32() < 0.4 && (p[0] - x).abs() + (p[1] - y).abs() < 6.0
+            });
+            if double {
+                self.last_press = None;
+                return self.run(Command::ResetWaterfallView);
+            }
+            self.last_press = Some((now, [x, y]));
+            self.orbit = Some(([x, y], false));
+            return Action::None;
+        }
         // A click over a plot with a frequency axis pins the cursor there. A click on a pinned cursor clears it
         // (the hover cursor of the pointer takes over at once).
         if !view.renderer.panel.makes_pointer_cursors() {
@@ -1293,11 +1387,94 @@ impl Scene {
         Action::None
     }
 
-    /// True over the swap button of the card with two views.
-    fn swap_button_at(&self, x: f32, y: f32) -> bool {
+    /// The card whose swap button is under the point: the stereo card, or the spectrogram outside the "Waterfall" layout.
+    fn swap_button_at(&self, x: f32, y: f32) -> Option<Card> {
+        let cards = if self.settings.layout_preset == LayoutPreset::Waterfall {
+            vec![Card::Vectorscope]
+        } else {
+            vec![Card::Vectorscope, Card::Spectrogram]
+        };
+        cards.into_iter().find(|card| {
+            self.layout
+                .card(*card)
+                .is_some_and(|rect| swap_button(rect).contains_point(x, y))
+        })
+    }
+
+    /// True over the "Reset view" button of the spectrogram card, which shows while the waterfall is turned.
+    fn reset_button_at(&self, x: f32, y: f32) -> bool {
+        let swaps = self.settings.layout_preset != LayoutPreset::Waterfall;
+        self.spectrogram().is_some_and(|p| p.has_custom_view())
+            && self
+                .layout
+                .card(Card::Spectrogram)
+                .is_some_and(|rect| reset_button(rect, swaps).contains_point(x, y))
+    }
+
+    /// For tests: the cards of the layout, each with whether its waterfall view is the user's.
+    pub fn cards_for_testing(&self) -> Vec<(Card, bool)> {
         self.layout
-            .card(Card::Vectorscope)
-            .is_some_and(|rect| swap_button(rect).contains_point(x, y))
+            .cards
+            .iter()
+            .map(|(card, _)| {
+                (
+                    *card,
+                    *card == Card::Spectrogram && self.spectrogram().is_some_and(|p| p.has_custom_view()),
+                )
+            })
+            .collect()
+    }
+
+    /// For tests: where a cell of the waterfall (a frequency, a time, at 40 % of the scale) stands in the window.
+    pub fn waterfall_point_for_testing(&self, hz: f32, seconds_ago: f64) -> Option<[f32; 2]> {
+        let view = self.cards.iter().find(|v| v.card == Card::Spectrogram)?;
+        let (_, panel_rect) = view.rects?;
+        let panel = view.renderer.panel.as_any().downcast_ref::<SpectrogramPanel>()?;
+        let p = panel.project_cell(hz, seconds_ago, 0.4)?;
+        Some([panel_rect.x + p[0], panel_rect.y + p[1]])
+    }
+
+    /// The spectrogram panel, to read its state.
+    fn spectrogram(&self) -> Option<&SpectrogramPanel> {
+        self.cards
+            .iter()
+            .find(|v| v.card == Card::Spectrogram)
+            .and_then(|v| v.renderer.panel.as_any().downcast_ref::<SpectrogramPanel>())
+    }
+
+    /// The pointer's scroll wheel or trackpad over the waterfall zooms it. `delta` in points, up = closer.
+    pub fn scrolled(&mut self, delta: f32) -> Action {
+        self.zoom_waterfall((delta * 0.004).exp())
+    }
+
+    /// A pinch over the waterfall zooms it. `scale` is the factor of the gesture (1 = no change).
+    pub fn pinched(&mut self, scale: f32) -> Action {
+        self.zoom_waterfall(scale)
+    }
+
+    fn zoom_waterfall(&mut self, factor: f32) -> Action {
+        let Some([x, y]) = self.pointer else {
+            return Action::None;
+        };
+        let Some((i, _)) = self.panel_at(x, y) else {
+            return Action::None;
+        };
+        if self.cards[i].card != Card::Spectrogram {
+            return Action::None;
+        }
+        if let Some((panel, base)) = self.cards[i].renderer.panel_as::<SpectrogramPanel>() {
+            panel.zoom(base, factor);
+        }
+        self.update_chrome();
+        Action::None
+    }
+
+    /// The waterfall back to its resting view.
+    fn reset_waterfall_view(&mut self) {
+        if let Some((panel, base)) = self.card_mut(Card::Spectrogram).renderer.panel_as::<SpectrogramPanel>() {
+            panel.reset_view(base);
+        }
+        self.update_chrome();
     }
 
     fn menu_button_at(&self, x: f32, y: f32) -> Option<MenuTarget> {
@@ -1357,17 +1534,50 @@ impl Scene {
             Effect::InstallUpdate => Action::InstallUpdate,
             Effect::OpenWindow => Action::OpenWindow,
             Effect::Quit => Action::Quit,
+            Effect::ResetWaterfallView => {
+                self.reset_waterfall_view();
+                Action::None
+            }
         }
     }
 
     /// The main button went up. A drag of a divider ends: the new shares are settings.
     pub fn pointer_released(&mut self) -> Action {
+        if let Some((_, moved)) = self.orbit.take() {
+            // A press on the waterfall that did not turn it: the cursor click of every panel.
+            if !moved {
+                if let Some([x, y]) = self.pointer {
+                    self.pin_at(x, y);
+                }
+            }
+            return Action::None;
+        }
         let dragged = self.dragging.take().is_some() | std::mem::take(&mut self.dragging_strip);
         if dragged {
             Action::SettingsChanged
         } else {
             Action::None
         }
+    }
+
+    /// A click over a plot with a frequency axis pins the cursor there. A click on a pinned cursor clears it.
+    fn pin_at(&mut self, x: f32, y: f32) {
+        let Some((i, point)) = self.panel_at(x, y) else { return };
+        let view = &mut self.cards[i];
+        if !view.renderer.panel.makes_pointer_cursors() {
+            return;
+        }
+        let Some(mut c) = view.renderer.panel.cursor_at(&view.renderer.base, point) else {
+            return;
+        };
+        let on_pinned = self.link.cursor().is_some_and(|c| c.is_pinned)
+            && view.renderer.panel.is_on_cursor(&view.renderer.base, point);
+        if on_pinned {
+            self.link.clear();
+        } else {
+            c.is_pinned = true;
+        }
+        self.link.set(c);
     }
 
     // MARK: Keys
@@ -1389,6 +1599,8 @@ impl Scene {
                     return Action::None;
                 }
                 self.settings.layout_preset = preset;
+                // The "Waterfall" layout forces the field on the spectrogram card.
+                self.apply_settings();
                 self.relayout();
                 Action::SettingsChanged
             }

@@ -30,6 +30,10 @@ pub enum Command {
     /// 0 = auto, else the fixed range in dB.
     LevelRange(i32),
     HistorySeconds(i32),
+    /// The spectrogram card as the flat picture (false) or the 3-D waterfall (true).
+    SpectrogramWaterfall(bool),
+    /// The waterfall back to its resting view.
+    ResetWaterfallView,
     ToggleSpectrumPlacement,
     StereoPlacement(bool),
     TimelineWindow(i64),
@@ -85,6 +89,8 @@ pub enum Effect {
     OpenCurvesFolder,
     CheckUpdates,
     InstallUpdate,
+    /// The waterfall back to its resting view: no setting changes.
+    ResetWaterfallView,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,6 +199,31 @@ pub fn card_menu(card: Card, s: &AppSettings) -> Vec<Entry> {
             menu.push(Entry::Separator);
         }
         Card::Spectrogram => {
+            let forced = s.layout_preset == LayoutPreset::Waterfall;
+            menu.push(Entry::Header("View"));
+            menu.push(check(
+                "Flat",
+                !forced && !s.spectrogram_waterfall,
+                Command::SpectrogramWaterfall(false),
+            ));
+            menu.push(check(
+                "3-D Waterfall",
+                forced || s.spectrogram_waterfall,
+                Command::SpectrogramWaterfall(true),
+            ));
+            menu.push(check(
+                "Waterfall Over the Whole Window\tCtrl+6",
+                forced,
+                Command::Preset(if forced {
+                    LayoutPreset::Essential
+                } else {
+                    LayoutPreset::Waterfall
+                }),
+            ));
+            if forced || s.spectrogram_waterfall {
+                menu.push(item("Reset View", Command::ResetWaterfallView));
+            }
+            menu.push(Entry::Separator);
             menu.push(Entry::Header("History"));
             for seconds in HISTORY_CHOICES {
                 let on = s.spectrogram_history_seconds == seconds;
@@ -317,8 +348,8 @@ pub const PEAK_DECAY_CHOICES: [f64; 4] = [6.0, 12.0, 24.0, 48.0];
 /// The settings menu of the header.
 pub fn settings_menu(s: &AppSettings, frozen: bool, names: &CurveNames) -> Vec<Entry> {
     let mut menu = vec![Entry::Header("Layout")];
-    for (i, preset) in LayoutPreset::ALL.into_iter().enumerate() {
-        let title = format!("{}\tCtrl+{}", preset.title(), i + 1);
+    for preset in LayoutPreset::ALL {
+        let title = format!("{}\t{}", preset.title(), preset.shortcut());
         menu.push(check(title, s.layout_preset == preset, Command::Preset(preset)));
     }
     menu.push(check(
@@ -438,6 +469,8 @@ pub fn apply(s: &mut AppSettings, command: Command, names: &CurveNames) -> Effec
         Tilt(tilt) => s.tilt_db_per_octave = tilt,
         LevelRange(choice) => s.set_level_range_choice(choice),
         HistorySeconds(seconds) => s.spectrogram_history_seconds = seconds,
+        SpectrogramWaterfall(on) => s.spectrogram_waterfall = on,
+        ResetWaterfallView => return Effect::ResetWaterfallView,
         ToggleSpectrumPlacement => s.spectrum_shows_placement = !s.spectrum_shows_placement,
         StereoPlacement(on) => s.stereo_placement_mode = on,
         TimelineWindow(seconds) => s.timeline_window_seconds = seconds,
@@ -700,6 +733,7 @@ mod tests {
                 "[x] Essential\tCtrl+1",
                 "[ ] Spectrum\tCtrl+2",
                 "[ ] Metering\tCtrl+3",
+                "[ ] Waterfall\tCtrl+6",
                 "[x] Session Timeline\tCtrl+5",
                 "-",
                 "# Headphones",
