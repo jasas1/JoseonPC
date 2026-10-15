@@ -2,8 +2,9 @@
 //!
 //! The release list is the public one of the project on GitHub. The program asks for it once after the
 //! start and once a day (a setting), and when the user says so. Nothing is sent but the request itself.
-//! The download and the unpacking are done by `curl` and `tar`, which Windows 10 and later bring along:
-//! the program needs no network code of its own.
+//! Installing is a separate step, and only when the user asks. A release is installed only when GitHub
+//! gives a SHA-256 and the file matches it. On Windows, `curl` and `tar` are the copies in the system
+//! directory. Redirects are followed only when the next host is on the list below.
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -12,10 +13,23 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-/// The release list. `JOSEON_UPDATE_URL` puts another one in its place (for a test).
+/// The release list. `JOSEON_UPDATE_URL` may name another https address on [`ALLOWED_HOSTS`] (for a test).
 pub const RELEASES_URL: &str = "https://api.github.com/repos/jasas1/JoseonPC/releases?per_page=10";
-/// A file of a release may only come from these places.
+/// A file of a release may only come from these places. The download itself may then be redirected to
+/// [`ALLOWED_HOSTS`].
 const DOWNLOAD_PREFIXES: [&str; 2] = ["https://github.com/jasas1/", "https://objects.githubusercontent.com/"];
+/// Hosts an update request may use. Exact match, https only. `release-assets.githubusercontent.com` is
+/// where a GitHub release file is redirected.
+const ALLOWED_HOSTS: [&str; 4] = [
+    "api.github.com",
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+];
+/// `curl` is not told to follow redirects. Each hop is checked, and this many are enough.
+const MAX_REDIRECTS: u32 = 5;
+/// Passed to `curl` so it neither follows a redirect nor speaks anything but https.
+const CURL_REDIRECT_ARGS: &[&str] = &["--max-redirs", "0", "--proto", "=https", "--proto-redir", "=https"];
 /// The end of the name of the file for this system.
 pub const ASSET_SUFFIX: &str = "-windows-x64.zip";
 /// The argument the new program gets: the old one may still run for a moment.
@@ -84,15 +98,16 @@ pub fn newest_release(json: &str) -> Result<Option<Release>, String> {
         if !DOWNLOAD_PREFIXES.iter().any(|prefix| url.starts_with(prefix)) {
             continue;
         }
+        // No digest, or a digest that is not 64 hex digits: this release cannot be installed.
+        let Some(sha256) = asset["digest"].as_str().and_then(sha256_from_digest_field) else {
+            continue;
+        };
         if best.as_ref().is_none_or(|b| version > b.version) {
             best = Some(Release {
                 version,
                 asset_name: name.to_string(),
                 asset_url: url.to_string(),
-                sha256: asset["digest"]
-                    .as_str()
-                    .and_then(|d| d.strip_prefix("sha256:"))
-                    .map(str::to_lowercase),
+                sha256: Some(sha256),
             });
         }
     }
@@ -133,48 +148,266 @@ impl Status {
     }
 }
 
-/// `curl` or `tar` with no console window.
-fn tool(name: &str) -> Command {
-    #[cfg_attr(not(windows), allow(unused_mut))]
-    let mut command = Command::new(name);
+/// `curl` or `tar`, with no console window. On Windows the program is the one in the system directory,
+/// never a name that another directory on `PATH` could answer.
+fn tool(name: &str) -> Result<Command, String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let mut command = Command::new(system_tool(name)?);
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        Ok(command)
     }
-    command
+    #[cfg(not(windows))]
+    {
+        // The tests unpack a zip with tar. The Windows build does not reach this branch.
+        Ok(Command::new(name))
+    }
+}
+
+/// The Windows system directory, from `GetSystemDirectoryW` (not a hard-coded drive).
+#[cfg(windows)]
+fn system_directory() -> Result<PathBuf, String> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
+    unsafe {
+        let mut buf = vec![0u16; 261];
+        let mut len = GetSystemDirectoryW(Some(buf.as_mut_slice()));
+        if len == 0 {
+            return Err("the Windows system directory is not known".to_string());
+        }
+        if len as usize >= buf.len() {
+            buf.resize(len as usize, 0);
+            len = GetSystemDirectoryW(Some(buf.as_mut_slice()));
+            if len == 0 || len as usize >= buf.len() {
+                return Err("the Windows system directory is not known".to_string());
+            }
+        }
+        Ok(PathBuf::from(std::ffi::OsString::from_wide(&buf[..len as usize])))
+    }
+}
+
+/// `name.exe` in the Windows system directory, and only there.
+#[cfg(windows)]
+fn system_tool(name: &str) -> Result<PathBuf, String> {
+    let path = system_directory()?.join(format!("{name}.exe"));
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(format!("{name} is not in the Windows system directory"))
+    }
 }
 
 fn fetch_text(url: &str) -> Result<String, String> {
-    let output = tool("curl")
-        .args(["-sSL", "--max-time", "20", "-H", "Accept: application/vnd.github+json"])
-        .args(["-A", &format!("Joseon/{}", Version::current()), url])
+    let bytes = fetch_bytes(url, "20", true)?;
+    String::from_utf8(bytes).map_err(|_| "the release list is not text".to_string())
+}
+
+fn fetch_file(url: &str, to: &Path) -> Result<(), String> {
+    // A file address exists only in tests, so the unpacking test needs no server. A release build
+    // has no such path: `fetch_bytes` allows https on [`ALLOWED_HOSTS`] and nothing else.
+    #[cfg(test)]
+    if let Some(copied) = copy_file_url(url, to) {
+        return copied;
+    }
+    let bytes = fetch_bytes(url, "300", false)?;
+    std::fs::write(to, bytes).map_err(|e| format!("the download cannot be written ({e})"))
+}
+
+/// One https request. A redirect is followed only when [`next_hop`] accepts it.
+fn fetch_bytes(url: &str, max_time: &str, api: bool) -> Result<Vec<u8>, String> {
+    let mut current = url.to_string();
+    let mut redirects = 0;
+    loop {
+        if !allowed_update_url(&current) {
+            return Err(format!("refusing an update from {current}"));
+        }
+        let scratch = std::env::temp_dir().join(format!("joseon-fetch-{}-{redirects}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).map_err(|e| format!("no room for the download ({e})"))?;
+        let body = scratch.join("body");
+        let headers_path = scratch.join("headers");
+        let exchanged = curl_exchange(&current, &body, &headers_path, max_time, api);
+        let decided = match exchanged {
+            Ok((code, headers)) => next_hop(code, location_header(&headers).as_deref(), &current),
+            Err(why) => Err(why),
+        };
+        match decided {
+            Ok(None) => {
+                let bytes = std::fs::read(&body).map_err(|e| format!("the download cannot be read ({e})"));
+                let _ = std::fs::remove_dir_all(&scratch);
+                return bytes;
+            }
+            Ok(Some(next)) => {
+                let _ = std::fs::remove_dir_all(&scratch);
+                redirects += 1;
+                if redirects > MAX_REDIRECTS {
+                    return Err("too many redirects".to_string());
+                }
+                current = next;
+            }
+            Err(why) => {
+                let _ = std::fs::remove_dir_all(&scratch);
+                return Err(why);
+            }
+        }
+    }
+}
+
+fn curl_exchange(
+    url: &str,
+    body: &Path,
+    headers_path: &Path,
+    max_time: &str,
+    api: bool,
+) -> Result<(u16, String), String> {
+    let mut command = tool("curl")?;
+    command.args(["-sS", "--max-time", max_time]);
+    command.args(CURL_REDIRECT_ARGS);
+    command.arg("-A").arg(format!("Joseon/{}", Version::current()));
+    if api {
+        command.args(["-H", "Accept: application/vnd.github+json"]);
+    }
+    command.arg("-D").arg(headers_path);
+    command.arg("-o").arg(body);
+    command.args(["-w", "%{http_code}", "--"]);
+    command.arg(url);
+    let output = command
         .output()
         .map_err(|_| "curl is not there (Windows 10 or later has it)".to_string())?;
     if !output.status.success() {
         return Err("no answer from the update server".to_string());
     }
-    String::from_utf8(output.stdout).map_err(|_| "the release list is not text".to_string())
+    let code = String::from_utf8_lossy(&output.stdout);
+    let code = code
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| "the update server gave no status".to_string())?;
+    let headers = std::fs::read(headers_path).unwrap_or_default();
+    Ok((code, String::from_utf8_lossy(&headers).into_owned()))
 }
 
-fn fetch_file(url: &str, to: &Path) -> Result<(), String> {
-    let status = tool("curl")
-        .args([
-            "-sSLf",
-            "--max-time",
-            "300",
-            "-A",
-            &format!("Joseon/{}", Version::current()),
-        ])
-        .arg("-o")
-        .arg(to)
-        .arg(url)
-        .status()
-        .map_err(|_| "curl is not there".to_string())?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| "the download did not finish".to_string())
+/// `true` when `url` is https, has no user or odd port, and its host is exactly one of [`ALLOWED_HOSTS`].
+fn allowed_update_url(url: &str) -> bool {
+    parse_https(url).is_ok_and(|(host, _)| ALLOWED_HOSTS.contains(&host.as_str()))
+}
+
+/// Host and path (the path starts with `/` and keeps the query). Fragments are dropped.
+fn parse_https(url: &str) -> Result<(String, String), String> {
+    if url.chars().any(|c| c.is_control() || c.is_whitespace() || c == '\\') {
+        return Err("the address is not usable".to_string());
+    }
+    let Some(rest) = url.strip_prefix("https://") else {
+        return Err("the address is not https".to_string());
+    };
+    if rest.is_empty() {
+        return Err("the address is not usable".to_string());
+    }
+    let (authority, path) = if let Some((authority, after)) = rest.split_once('/') {
+        let path = format!("/{after}");
+        let path = path.split('#').next().unwrap_or("/").to_string();
+        (authority, path)
+    } else if let Some((authority, query)) = rest.split_once('?') {
+        let query = query.split('#').next().unwrap_or("");
+        (authority, format!("/?{query}"))
+    } else {
+        (rest.split('#').next().unwrap_or(rest), "/".to_string())
+    };
+    if authority.is_empty() || authority.contains('@') || authority.contains('[') {
+        return Err("the address is not usable".to_string());
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => (host, Some(port)),
+        Some(_) => return Err("the address is not usable".to_string()),
+        None => (authority, None),
+    };
+    if host.is_empty() || port.is_some_and(|p| p != "443") {
+        return Err("the address is not usable".to_string());
+    }
+    Ok((host.to_ascii_lowercase(), path))
+}
+
+fn location_header(headers: &str) -> Option<String> {
+    for line in headers.split('\n') {
+        let line = line.trim_end_matches('\r');
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("location") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// The address a redirect asks for, still relative to `current` when it is not absolute.
+fn resolve_redirect(current: &str, location: &str) -> Result<String, String> {
+    let location = location.trim();
+    if location.is_empty() || location.chars().any(|c| c.is_control() || c == '\\') {
+        return Err("the redirect is not usable".to_string());
+    }
+    if location.starts_with("https://") || location.starts_with("http://") {
+        return Ok(location.to_string());
+    }
+    let (host, path) = parse_https(current)?;
+    if let Some(rest) = location.strip_prefix("//") {
+        return Ok(format!("https://{rest}"));
+    }
+    if location.starts_with('/') {
+        return Ok(format!("https://{host}{location}"));
+    }
+    if location.starts_with('?') {
+        let path_only = path.split('?').next().unwrap_or("/");
+        return Ok(format!("https://{host}{path_only}{location}"));
+    }
+    let path_only = path.split('?').next().unwrap_or("/");
+    let dir = match path_only.rfind('/') {
+        Some(i) => &path_only[..=i],
+        None => "/",
+    };
+    Ok(format!("https://{host}{dir}{location}"))
+}
+
+/// The next address, or an error when it leaves [`ALLOWED_HOSTS`].
+fn accept_redirect(current: &str, location: &str) -> Result<String, String> {
+    let next = resolve_redirect(current, location)?;
+    if allowed_update_url(&next) {
+        Ok(next)
+    } else {
+        Err(format!("refusing a redirect to {next}"))
+    }
+}
+
+/// `Ok(None)` = the body is the file. `Ok(Some)` = fetch that address next.
+fn next_hop(code: u16, location: Option<&str>, current: &str) -> Result<Option<String>, String> {
+    match code {
+        200 => Ok(None),
+        301 | 302 | 303 | 307 | 308 => {
+            let location = location.ok_or_else(|| "the redirect has no address".to_string())?;
+            accept_redirect(current, location).map(Some)
+        }
+        _ => Err(format!("the update server answered {code}")),
+    }
+}
+
+/// Copies `file://...` in tests. `None` when `url` is not a file address.
+#[cfg(test)]
+fn copy_file_url(url: &str, to: &Path) -> Option<Result<(), String>> {
+    let rest = url.strip_prefix("file://")?;
+    // `file:///C:/...` keeps one slash in front of the drive letter. A Unix path does not.
+    let path = if rest.len() >= 3 && rest.as_bytes()[0] == b'/' && rest.as_bytes()[2] == b':' {
+        &rest[1..]
+    } else {
+        rest
+    };
+    Some(
+        std::fs::copy(path, to)
+            .map(|_| ())
+            .map_err(|e| format!("the download cannot be read ({e})")),
+    )
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -182,6 +415,100 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
         out
     })
+}
+
+/// 64 hex digits, either case.
+fn is_sha256_hex(text: &str) -> bool {
+    text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// `sha256:` plus 64 hex digits, as GitHub writes a release asset digest. Lower case.
+fn sha256_from_digest_field(digest: &str) -> Option<String> {
+    let hex = digest.strip_prefix("sha256:")?.to_ascii_lowercase();
+    is_sha256_hex(&hex).then_some(hex)
+}
+
+/// The digest an install may use, or an error when there is none.
+fn canonical_digest(sha256: &Option<String>) -> Result<String, String> {
+    match sha256 {
+        Some(hex) if is_sha256_hex(hex) => Ok(hex.to_ascii_lowercase()),
+        _ => Err("the release has no SHA-256 digest".to_string()),
+    }
+}
+
+fn check_digest(wanted: &str, bytes: &[u8]) -> Result<(), String> {
+    let wanted = canonical_digest(&Some(wanted.to_string()))?;
+    if sha256_hex(bytes) != wanted {
+        return Err("the download is not the file of the release (checksum)".to_string());
+    }
+    Ok(())
+}
+
+/// `JOSEON_REQUIRE_SIGNATURE=1` at compile time. The release workflow sets it only when SignPath
+/// signing is configured, so a signed program checks the next update. An ordinary build does not:
+/// until a signed release exists, requiring a signature would refuse every update.
+fn requires_authenticode() -> bool {
+    option_env!("JOSEON_REQUIRE_SIGNATURE").is_some_and(|value| value == "1")
+}
+
+/// Authenticode via `WinVerifyTrust`, with no dialog. The chain is checked for revocation.
+#[cfg(windows)]
+fn verify_authenticode(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Security::WinTrust::{
+        WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO,
+        WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_CHAIN, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
+        WTD_UI_NONE,
+    };
+
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    let mut file = WINTRUST_FILE_INFO {
+        cbStruct: u32::try_from(std::mem::size_of::<WINTRUST_FILE_INFO>()).unwrap_or(0),
+        pcwszFilePath: PCWSTR(wide.as_ptr()),
+        ..Default::default()
+    };
+    let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    let mut data = WINTRUST_DATA {
+        cbStruct: u32::try_from(std::mem::size_of::<WINTRUST_DATA>()).unwrap_or(0),
+        dwUIChoice: WTD_UI_NONE,
+        fdwRevocationChecks: WTD_REVOKE_NONE,
+        dwUnionChoice: WTD_CHOICE_FILE,
+        Anonymous: WINTRUST_DATA_0 { pFile: &mut file },
+        dwStateAction: WTD_STATEACTION_VERIFY,
+        dwProvFlags: WTD_REVOCATION_CHECK_CHAIN,
+        ..Default::default()
+    };
+    let status = unsafe {
+        WinVerifyTrust(
+            HWND(std::ptr::null_mut()),
+            &mut action,
+            &mut data as *mut WINTRUST_DATA as *mut _,
+        )
+    };
+    data.dwStateAction = WTD_STATEACTION_CLOSE;
+    unsafe {
+        WinVerifyTrust(
+            HWND(std::ptr::null_mut()),
+            &mut action,
+            &mut data as *mut WINTRUST_DATA as *mut _,
+        );
+    }
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "the new program has no valid Authenticode signature ({:#010x})",
+            status as u32
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn verify_authenticode(_path: &Path) -> Result<(), String> {
+    Err("Authenticode can only be checked on Windows".to_string())
 }
 
 /// Asks the release list for a release newer than `current`.
@@ -253,6 +580,8 @@ pub fn remove_old_files(folder: &Path) {
 
 /// Fetches `release`, checks it, unpacks it and puts it into `folder` (the folder of the program).
 pub fn download_and_install(release: &Release, folder: &Path) -> Result<(), String> {
+    // Before any download: a release with no digest is not installed.
+    let wanted = canonical_digest(&release.sha256)?;
     let work = std::env::temp_dir().join(format!("joseon-update-{}", release.version));
     let _ = std::fs::remove_dir_all(&work);
     let unpacked = work.join("files");
@@ -260,12 +589,8 @@ pub fn download_and_install(release: &Release, folder: &Path) -> Result<(), Stri
     let zip = work.join("update.zip");
     fetch_file(&release.asset_url, &zip)?;
     let bytes = std::fs::read(&zip).map_err(|e| format!("the download cannot be read ({e})"))?;
-    if let Some(wanted) = &release.sha256 {
-        if sha256_hex(&bytes) != *wanted {
-            return Err("the download is not the file of the release (checksum)".to_string());
-        }
-    }
-    let status = tool("tar")
+    check_digest(&wanted, &bytes)?;
+    let status = tool("tar")?
         .arg("-xf")
         .arg(&zip)
         .arg("-C")
@@ -277,8 +602,12 @@ pub fn download_and_install(release: &Release, folder: &Path) -> Result<(), Stri
     }
     let payload = payload_folder(&unpacked);
     let program = if cfg!(windows) { "Joseon.exe" } else { "Joseon" };
-    if !payload.join(program).is_file() {
+    let program_path = payload.join(program);
+    if !program_path.is_file() {
         return Err(format!("the release has no {program}"));
+    }
+    if requires_authenticode() {
+        verify_authenticode(&program_path)?;
     }
     install_files(&payload, folder)?;
     let _ = std::fs::remove_dir_all(&work);
@@ -374,18 +703,23 @@ pub fn relaunch() -> bool {
 mod tests {
     use super::*;
 
+    /// 64 hex digits. A shorter digest, such as "ABCDEF", does not count.
+    const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     const LIST: &str = r#"[
       {"tag_name": "v0.0.9", "draft": true, "assets": [
-        {"name": "Joseon-v0.0.9-windows-x64.zip", "browser_download_url": "https://github.com/jasas1/JoseonPC/releases/download/v0.0.9/Joseon-v0.0.9-windows-x64.zip"}]},
+        {"name": "Joseon-v0.0.9-windows-x64.zip", "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+         "browser_download_url": "https://github.com/jasas1/JoseonPC/releases/download/v0.0.9/Joseon-v0.0.9-windows-x64.zip"}]},
       {"tag_name": "v0.0.7", "prerelease": true, "assets": [
-        {"name": "Joseon-v0.0.7-windows-x64.zip", "digest": "sha256:ABCDEF",
+        {"name": "Joseon-v0.0.7-windows-x64.zip", "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
          "browser_download_url": "https://github.com/jasas1/JoseonPC/releases/download/v0.0.7/Joseon-v0.0.7-windows-x64.zip"}]},
       {"tag_name": "v0.0.8", "prerelease": true, "assets": [
         {"name": "notes.txt", "browser_download_url": "https://github.com/jasas1/JoseonPC/releases/download/v0.0.8/notes.txt"},
         {"name": "Joseon-v0.0.8-windows-x64.zip",
          "browser_download_url": "https://github.com/jasas1/JoseonPC/releases/download/v0.0.8/Joseon-v0.0.8-windows-x64.zip"}]},
       {"tag_name": "v0.1.0", "assets": [
-        {"name": "Joseon-v0.1.0-windows-x64.zip", "browser_download_url": "https://example.com/Joseon-v0.1.0-windows-x64.zip"}]},
+        {"name": "Joseon-v0.1.0-windows-x64.zip", "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+         "browser_download_url": "https://example.com/Joseon-v0.1.0-windows-x64.zip"}]},
       {"tag_name": "v0.2.0", "assets": [{"name": "Joseon-v0.2.0-macos.zip", "browser_download_url": "https://github.com/jasas1/x.zip"}]},
       {"tag_name": "nightly", "assets": []}
     ]"#;
@@ -404,16 +738,24 @@ mod tests {
 
     #[test]
     fn the_newest_release_with_a_file_for_this_system_is_chosen() {
-        // v0.0.9 is a draft, v0.1.0 comes from a foreign place, v0.2.0 has no Windows file.
+        // v0.0.9 is a draft, v0.0.8 has no digest, v0.1.0 comes from a foreign place, v0.2.0 has no Windows file.
         let release = newest_release(LIST).unwrap().unwrap();
-        assert_eq!(release.version, Version(0, 0, 8));
-        assert_eq!(release.asset_name, "Joseon-v0.0.8-windows-x64.zip");
-        assert!(release.asset_url.ends_with("/v0.0.8/Joseon-v0.0.8-windows-x64.zip"));
-        assert_eq!(release.sha256, None);
-        let older = newest_release(&LIST.replace("v0.0.8", "v0.0.6")).unwrap().unwrap();
+        assert_eq!(release.version, Version(0, 0, 7));
+        assert_eq!(release.asset_name, "Joseon-v0.0.7-windows-x64.zip");
+        assert!(release.asset_url.ends_with("/v0.0.7/Joseon-v0.0.7-windows-x64.zip"));
+        assert_eq!(release.sha256.as_deref(), Some(DIGEST));
+        // A short digest does not count, so nothing is left.
+        assert_eq!(newest_release(&LIST.replace(DIGEST, "abcdef")), Ok(None));
+        // The same asset with a full digest is chosen, and the hex is stored in lower case.
+        let with_digest = LIST.replacen(
+            "\"name\": \"Joseon-v0.0.8-windows-x64.zip\"",
+            &format!("\"name\": \"Joseon-v0.0.8-windows-x64.zip\", \"digest\": \"sha256:{DIGEST}\""),
+            1,
+        );
+        let newer = newest_release(&with_digest).unwrap().unwrap();
         assert_eq!(
-            (older.version, older.sha256.as_deref()),
-            (Version(0, 0, 7), Some("abcdef"))
+            (newer.version, newer.sha256.as_deref()),
+            (Version(0, 0, 8), Some(DIGEST))
         );
         assert_eq!(newest_release("[]"), Ok(None));
         assert_eq!(
@@ -427,7 +769,7 @@ mod tests {
     fn the_menu_line_says_where_the_updater_stands() {
         let release = newest_release(LIST).unwrap().unwrap();
         assert_eq!(Status::Idle.line(), None);
-        assert_eq!(Status::Available(release).line().unwrap(), "Joseon 0.0.8 is there");
+        assert_eq!(Status::Available(release).line().unwrap(), "Joseon 0.0.7 is there");
         assert!(Status::UpToDate.line().unwrap().ends_with("is the newest version"));
         assert_eq!(
             Status::Failed("no answer".to_string()).line().unwrap(),
@@ -483,14 +825,17 @@ mod tests {
         std::fs::write(inside.join("licenses/notice.md"), "text").unwrap();
         std::fs::write(folder.join(program), "the old program").unwrap();
         let zip = root.join("Joseon-v9.9.9-windows-x64.zip");
-        let made = tool("tar")
-            .arg("-a")
-            .arg("-cf")
-            .arg(&zip)
-            .arg("-C")
-            .arg(&dist)
-            .arg("Joseon-v9.9.9-windows-x64")
-            .status();
+        let made = tool("tar").and_then(|mut command| {
+            command
+                .arg("-a")
+                .arg("-cf")
+                .arg(&zip)
+                .arg("-C")
+                .arg(&dist)
+                .arg("Joseon-v9.9.9-windows-x64")
+                .status()
+                .map_err(|e| e.to_string())
+        });
         if !made.is_ok_and(|s| s.success()) {
             eprintln!("skipped: this machine has no tar that writes a zip");
             return;
@@ -534,5 +879,146 @@ mod tests {
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+        assert!(check_digest(&sha256_hex(b"abc"), b"abc").is_ok());
+        let wrong = check_digest(&"ab".repeat(32), b"abc").unwrap_err();
+        assert!(wrong.contains("checksum"), "{wrong}");
+        assert!(check_digest("abcdef", b"abc").unwrap_err().contains("no SHA-256"));
+        assert!(canonical_digest(&None).unwrap_err().contains("no SHA-256"));
+        assert_eq!(
+            sha256_from_digest_field(&format!("sha256:{}", DIGEST.to_ascii_uppercase())).as_deref(),
+            Some(DIGEST)
+        );
+    }
+
+    #[test]
+    fn a_release_without_a_digest_is_not_installed() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let folder = std::env::temp_dir().join(format!("joseon-update-nodigest-{nanos}"));
+        std::fs::create_dir_all(&folder).unwrap();
+        let program = if cfg!(windows) { "Joseon.exe" } else { "Joseon" };
+        std::fs::write(folder.join(program), "the old program").unwrap();
+        let mut release = Release {
+            version: Version(8, 8, 8),
+            asset_name: "Joseon.zip".to_string(),
+            asset_url: "https://evil.example/Joseon.zip".to_string(),
+            sha256: None,
+        };
+        let missing = download_and_install(&release, &folder).unwrap_err();
+        assert!(missing.contains("no SHA-256"), "{missing}");
+        release.sha256 = Some("abcdef".to_string());
+        let short = download_and_install(&release, &folder).unwrap_err();
+        assert!(short.contains("no SHA-256"), "{short}");
+        assert_eq!(
+            std::fs::read_to_string(folder.join(program)).unwrap(),
+            "the old program"
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn an_update_from_outside_the_allow_list_is_refused() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let folder = std::env::temp_dir().join(format!("joseon-update-foreign-{nanos}"));
+        std::fs::create_dir_all(&folder).unwrap();
+        let program = if cfg!(windows) { "Joseon.exe" } else { "Joseon" };
+        std::fs::write(folder.join(program), "the old program").unwrap();
+        let release = Release {
+            version: Version(7, 7, 7),
+            asset_name: "Joseon.zip".to_string(),
+            asset_url: "https://evil.example/Joseon.zip".to_string(),
+            sha256: Some(DIGEST.to_string()),
+        };
+        let refused = download_and_install(&release, &folder).unwrap_err();
+        assert!(refused.contains("refusing"), "{refused}");
+        assert_eq!(
+            std::fs::read_to_string(folder.join(program)).unwrap(),
+            "the old program"
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+        let _ = std::fs::remove_dir_all(std::env::temp_dir().join("joseon-update-7.7.7"));
+    }
+
+    #[test]
+    fn redirects_stay_on_the_github_hosts() {
+        assert!(allowed_update_url(RELEASES_URL));
+        assert!(allowed_update_url(
+            "https://github.com/jasas1/JoseonPC/releases/download/v0.0.11/a.zip"
+        ));
+        assert!(allowed_update_url(
+            "https://objects.githubusercontent.com/github-production-release-asset/x"
+        ));
+        assert!(allowed_update_url(
+            "https://release-assets.githubusercontent.com/github-production-release-asset/x"
+        ));
+        assert!(allowed_update_url("https://github.com:443/jasas1/JoseonPC"));
+        for refused in [
+            "https://evil.example/a.zip",
+            "https://github.com.evil/a.zip",
+            "https://user:pw@github.com/a.zip",
+            "http://github.com/a.zip",
+            "https://github.com:8443/a.zip",
+            "file:///tmp/a.zip",
+            "https://github.com.",
+        ] {
+            assert!(!allowed_update_url(refused), "{refused}");
+        }
+
+        let from = "https://github.com/jasas1/JoseonPC/releases/download/v0.0.11/a.zip";
+        assert!(accept_redirect(from, "https://release-assets.githubusercontent.com/x?a=1").is_ok());
+        assert!(accept_redirect(from, "https://objects.githubusercontent.com/x").is_ok());
+        assert_eq!(
+            accept_redirect(from, "/jasas1/other").unwrap(),
+            "https://github.com/jasas1/other"
+        );
+        for location in [
+            "https://evil.example/a.zip",
+            "http://github.com/a.zip",
+            "https://user@github.com/a.zip",
+            "https://github.com.evil/a.zip",
+            "//evil.example/a",
+        ] {
+            let refused = accept_redirect(from, location).unwrap_err();
+            assert!(refused.contains("refusing"), "{location}: {refused}");
+        }
+        assert_eq!(next_hop(200, None, from).unwrap(), None);
+        assert!(next_hop(302, Some("https://evil.example/a"), from).is_err());
+        assert_eq!(
+            next_hop(302, Some("https://release-assets.githubusercontent.com/a"), from)
+                .unwrap()
+                .as_deref(),
+            Some("https://release-assets.githubusercontent.com/a")
+        );
+        assert!(next_hop(302, None, from).unwrap_err().contains("no address"));
+        assert!(next_hop(404, None, from).is_err());
+        assert_eq!(
+            location_header("HTTP/1.1 302 Found\r\nLocation: https://objects.githubusercontent.com/a\r\n").as_deref(),
+            Some("https://objects.githubusercontent.com/a")
+        );
+        assert!(!CURL_REDIRECT_ARGS
+            .iter()
+            .any(|arg| *arg == "-L" || *arg == "--location"));
+        assert!(CURL_REDIRECT_ARGS.contains(&"--max-redirs"));
+    }
+
+    #[test]
+    fn a_normal_build_does_not_require_an_authenticode_signature() {
+        assert!(!requires_authenticode());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn curl_and_tar_come_from_the_system_directory() {
+        let dir = system_directory().unwrap();
+        for name in ["curl", "tar"] {
+            let path = system_tool(name).unwrap();
+            assert!(path.is_absolute(), "{}", path.display());
+            assert!(path.is_file(), "{}", path.display());
+            assert!(path.starts_with(&dir), "{}", path.display());
+            assert_eq!(path.file_name().unwrap(), std::ffi::OsStr::new(&format!("{name}.exe")));
+        }
     }
 }

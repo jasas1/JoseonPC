@@ -1,14 +1,19 @@
 name: release
 # A tag "v1.2.3" builds the Windows programs and makes a release with one zip.
+# Signing runs only when the SignPath secret and variables are all set. Otherwise the
+# zip is the unsigned build, as before. See docs/SIGNING.md.
 on:
   push:
     tags: ["v*"]
 permissions:
   contents: write
+  # The SignPath action reads the workflow artifact. Harmless while signing is off.
+  actions: read
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 45
+    # Signing waits for a person to approve. The action itself waits 40 minutes.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -20,13 +25,42 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: cargo-${{ runner.os }}-
       - name: The tag is the version of the program
+        id: version
         shell: pwsh
         run: |
           # The updater compares the tag of a release with the version inside the program.
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
           if ("v$version" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} but Cargo.toml says $version" }
-      - run: cargo build --release -p joseon-app -p joseon-probe
-      - name: Make the zip
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: See whether signing is configured
+        id: signing
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+        run: |
+          $names = @(
+            'SIGNPATH_API_TOKEN',
+            'SIGNPATH_ORGANIZATION_ID',
+            'SIGNPATH_PROJECT_SLUG',
+            'SIGNPATH_SIGNING_POLICY_SLUG'
+          )
+          $missing = @($names | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+          if ($missing.Count -eq 0) {
+            "enabled=true" >> $env:GITHUB_OUTPUT
+            "SignPath signing is configured."
+          } else {
+            "enabled=false" >> $env:GITHUB_OUTPUT
+            "SignPath signing is off (missing: $($missing -join ', ')). The release stays unsigned."
+          }
+      - name: Build
+        env:
+          # Compiled into the program. 1 = the next update must have a valid Authenticode signature.
+          JOSEON_REQUIRE_SIGNATURE: ${{ steps.signing.outputs.enabled == 'true' && '1' || '0' }}
+        run: cargo build --release -p joseon-app -p joseon-probe
+      - name: Stage the files
         shell: pwsh
         run: |
           $name = "Joseon-${{ github.ref_name }}-windows-x64"
@@ -42,6 +76,44 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the probe did not run" }
           $p = Start-Process "dist/$name/Joseon.exe" -ArgumentList '--demo','--snapshot','snapshots','--seconds','1' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Joseon.exe did not draw" }
+      - name: Upload the unsigned program
+        if: steps.signing.outputs.enabled == 'true'
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: Joseon-exe-unsigned
+          path: dist/Joseon-${{ github.ref_name }}-windows-x64/Joseon.exe
+          if-no-files-found: error
+      - name: Submit the signing request
+        if: steps.signing.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 2400
+          output-artifact-directory: signed
+          # upload-artifact@v4 always stores a zip, so SignPath's default configuration
+          # must describe that zip. The action then unpacks the signed zip here.
+          parameters: |
+            version: ${{ toJSON(steps.version.outputs.version) }}
+      - name: Use the signed program
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $name = "Joseon-${{ github.ref_name }}-windows-x64"
+          $signed = @(Get-ChildItem -Recurse -Path signed -Filter Joseon.exe)
+          if ($signed.Count -ne 1) { throw "SignPath should return one Joseon.exe (found $($signed.Count))" }
+          Copy-Item $signed[0].FullName "dist/$name/Joseon.exe" -Force
+          $p = Start-Process "dist/$name/Joseon.exe" -ArgumentList '--demo','--snapshot','snapshots','--seconds','1' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "the signed Joseon.exe did not draw" }
+      - name: Make the zip
+        shell: pwsh
+        run: |
+          $name = "Joseon-${{ github.ref_name }}-windows-x64"
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
           Get-FileHash "dist/$name.zip" -Algorithm SHA256 | Format-List
           "ZIP=dist/$name.zip" >> $env:GITHUB_ENV
