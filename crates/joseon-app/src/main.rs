@@ -647,8 +647,11 @@ impl ApplicationHandler for App {
         self.run_tray_events();
         self.run_updater();
         if self.quit {
+            // The settings are safe and the windows go at once. The threads stop after the event loop (`main`).
             self.shell.save();
-            self.shell.model.shutdown();
+            if let Some(window) = &self.window {
+                window.set_visible(false);
+            }
             self.strip = None;
             self.tray = None;
             event_loop.exit();
@@ -1106,12 +1109,35 @@ fn main() {
         last_tray: std::time::Instant::now(),
     };
     let result = event_loop.run_app(&mut app);
-    if let Some(failure) = &app.failure {
-        eprintln!("joseon: {failure}");
-        std::process::exit(1);
-    }
-    if let Err(error) = result {
-        eprintln!("joseon: {error}");
-        std::process::exit(1);
-    }
+    let code = match (&app.failure, result) {
+        (Some(failure), _) => {
+            eprintln!("joseon: {failure}");
+            1
+        }
+        (None, Err(error)) => {
+            eprintln!("joseon: {error}");
+            1
+        }
+        (None, Ok(())) => 0,
+    };
+    end(app, code);
+}
+
+/// Stops the threads and ends the program. A thread that does not stop (a player that never answers the
+/// media session of Windows, a driver that holds the capture) must not keep the program alive: after
+/// `QUIT_GRACE` the program ends all the same.
+fn end(mut app: App, code: i32) -> ! {
+    const QUIT_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+    let _ = std::thread::Builder::new()
+        .name("joseon quit".to_string())
+        .spawn(move || {
+            std::thread::sleep(QUIT_GRACE);
+            joseon_app::log::line("quit: the threads did not stop in time; the program ends all the same");
+            std::process::exit(code);
+        });
+    joseon_app::log::line("quit: stopping the threads");
+    app.shell.model.shutdown();
+    joseon_app::log::line("quit: done");
+    // No destructors: the threads are stopped, and the windows and the GPU go with the process.
+    std::process::exit(code);
 }

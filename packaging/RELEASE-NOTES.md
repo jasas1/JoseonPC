@@ -3,6 +3,9 @@ An early test build of Joseon for Windows.
 **To try it:** download the zip below, unpack it, play some music, and start `Joseon.exe`.
 Nothing is installed. `README.txt` in the zip has the keys and what to do when the panels do not move.
 
+**New in v0.0.11**
+- "Quit Joseon" in the tray menu ends the program again. Before, it could hang with no window, and only the Task Manager could end it.
+
 **New in v0.0.10**
 - The waterfall: the spectrogram as a 3-D field. The swap button on the spectrogram card shows it in the card; Ctrl+6 shows it over the whole window with the timeline squashed under it. Drag to turn, scroll or pinch to zoom, double click or "Reset view" to come back. The same history, the same dB scale, the same cursor as the flat picture. Ported from the macOS app.
 
