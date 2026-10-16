@@ -3,6 +3,9 @@ An early test build of Joseon for Windows.
 **To try it:** download the zip below, unpack it, play some music, and start `Joseon.exe`.
 Nothing is installed. `README.txt` in the zip has the keys and what to do when the panels do not move.
 
+**New in v0.0.12**
+- Safer updates. Joseon installs an update only when its SHA-256 matches the one GitHub gives for the release. It downloads only from GitHub, with every redirect checked, and it uses the `curl` and `tar` that come with Windows.
+
 **New in v0.0.11**
 - "Quit Joseon" in the tray menu ends the program again. Before, it could hang with no window, and only the Task Manager could end it.
 
