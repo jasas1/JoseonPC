@@ -1188,14 +1188,14 @@ impl Panel for VectorscopePanel {
         h.finish()
     }
 
-    fn update(&mut self, _base: &mut PanelBase, f: &AnalysisFrame, dt: f64) {
-        self.pending_fade += dt;
+    fn update(&mut self, base: &mut PanelBase, f: &AnalysisFrame, dt: f64) {
+        self.pending_fade += base.animation_delta;
         let pts = &f.stereo.scope_points;
         self.pending_points = !f.is_silent && (self.is_pan() || !pts.is_empty());
         if self.pending_points {
             self.since_light = 0.0;
         } else {
-            self.since_light += dt;
+            self.since_light += base.animation_delta;
         }
         self.update_gain(pts, dt);
         let kc = (1.0 - (-dt / 0.12).exp()) as f32;

@@ -283,3 +283,20 @@ fn the_light_fades_when_the_frames_stop() {
         sum(&before)
     );
 }
+
+/// Port of the macOS 0.1.2 pacing fix: the window gives the display time with each frame, so the fades move by the
+/// time between pictures. Offscreen pictures keep the frame time.
+#[test]
+fn a_live_frame_carries_the_display_time() {
+    let Some(ctx) = gpu() else { return };
+    let mut renderer = crate::panel::PanelRenderer::make(PanelKind::Vectorscope, ctx, Theme::default()).unwrap();
+    renderer.set_layout(400.0, 400.0, 2.0);
+    let frames = SyntheticFrames::sequence(3, Options::default());
+    renderer.ingest(Arc::new(frames[0].clone()));
+    renderer.ingest(Arc::new(frames[1].clone()));
+    let frame_time = renderer.base.frame_delta;
+    assert_eq!(renderer.base.animation_delta, frame_time);
+    renderer.ingest_animated(Arc::new(frames[2].clone()), Some(1.0 / 144.0));
+    assert_eq!(renderer.base.frame_delta, frame_time);
+    assert_eq!(renderer.base.animation_delta, 1.0 / 144.0);
+}

@@ -98,6 +98,9 @@ pub struct PanelBase {
     pub scale: f32,
     pub last_host_time: f64,
     pub frame_delta: f64,
+    /// Display time since the previous picture, apart from the analysis-frame cadence. Offscreen pictures use
+    /// the frame time; the window gives its own, so the camera and the fades move between analysis frames too.
+    pub animation_delta: f64,
     pub ingest_count: u64,
     /// GPU seconds of the last completed command buffer (set by the owner).
     pub last_gpu_time: f64,
@@ -141,6 +144,7 @@ impl PanelBase {
             scale: 2.0,
             last_host_time: 0.0,
             frame_delta: 1.0 / 60.0,
+            animation_delta: 1.0 / 60.0,
             ingest_count: 0,
             last_gpu_time: 0.0,
             drawing_this_frame: false,
@@ -578,6 +582,11 @@ impl PanelRenderer {
     // MARK: Driving
 
     pub fn ingest(&mut self, f: Arc<AnalysisFrame>) {
+        self.ingest_animated(f, None);
+    }
+
+    /// `ingest` with the display time since the previous picture (`None` = the frame time).
+    pub fn ingest_animated(&mut self, f: Arc<AnalysisFrame>, animation_delta: Option<f64>) {
         let base = &mut self.base;
         let mut dt = if base.frame.is_none() {
             1.0 / 60.0
@@ -588,6 +597,7 @@ impl PanelRenderer {
             dt = 1.0 / 60.0;
         }
         base.frame_delta = dt;
+        base.animation_delta = animation_delta.unwrap_or(dt);
         base.last_host_time = f.host_time;
         base.ingest_count = base.ingest_count.wrapping_add(1);
         let digest = digest(&f);

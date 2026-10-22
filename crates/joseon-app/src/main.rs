@@ -15,7 +15,7 @@ use joseon_app::model::AppModel;
 use joseon_app::model::HeaderState;
 use joseon_app::scene::{Action, Key, PointerShape, Scene};
 use joseon_app::settings::{settings_path, AppSettings, LayoutPreset};
-use joseon_app::{layout, local_time};
+use joseon_app::{layout, local_time, pacing};
 use joseon_core::engine::uptime;
 use joseon_render::context::TARGET_FORMAT;
 use joseon_render::RenderContext;
@@ -214,6 +214,13 @@ struct App {
     stalled: bool,
     /// The last picture of the main window.
     last_draw: std::time::Instant,
+    /// When the surface gave the last picture's texture: that is on a refresh of the display.
+    last_acquire: std::time::Instant,
+    /// Balanced pacing: when to ask for the next picture. `None` = asked already, or High Refresh.
+    next_picture_at: Option<std::time::Instant>,
+    /// The refresh rate of the window's display, looked up about once a second.
+    display_hz: Option<f64>,
+    display_hz_checked: Option<std::time::Instant>,
     last_background: std::time::Instant,
     last_tray: std::time::Instant,
 }
@@ -253,6 +260,22 @@ impl App {
             .resize(size.width as f32 / scale, size.height as f32 / scale, scale);
     }
 
+    /// The refresh rate of the display the window is on. Looked up again after a second: the window can move to
+    /// another display.
+    fn display_hz(&mut self, window: &Window) -> Option<f64> {
+        let fresh = self
+            .display_hz_checked
+            .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(1));
+        if !fresh {
+            self.display_hz = window
+                .current_monitor()
+                .and_then(|monitor| monitor.refresh_rate_millihertz())
+                .map(|millihertz| millihertz as f64 / 1000.0);
+            self.display_hz_checked = Some(std::time::Instant::now());
+        }
+        self.display_hz
+    }
+
     fn draw(&mut self) {
         let (Some(surface), Some(_)) = (&self.surface, &self.config) else {
             return;
@@ -262,7 +285,10 @@ impl App {
         self.last_draw = self.last_background;
         let ctx = RenderContext::shared().expect("the scene has a context");
         let frame = match surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Success(frame) | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
+                self.last_acquire = std::time::Instant::now();
+                frame
+            }
             // Hidden, or the display was late: no picture this time.
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => return,
             // The surface changed under us (a new size, a new display): set it up again and draw the next time.
@@ -677,7 +703,19 @@ impl ApplicationHandler for App {
         self.update_tray();
         self.update_strip(event_loop);
         // The tray icon and the strip move with no event from the system: wake up for them.
-        let next = std::time::Instant::now() + std::time::Duration::from_millis(33);
+        let now = std::time::Instant::now();
+        let mut next = now + std::time::Duration::from_millis(33);
+        // Balanced: the next picture of the main window is due.
+        if let Some(at) = self.next_picture_at {
+            if at <= now {
+                self.next_picture_at = None;
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            } else {
+                next = next.min(at);
+            }
+        }
         event_loop.set_control_flow(ControlFlow::WaitUntil(next));
     }
 
@@ -760,11 +798,17 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                self.next_picture_at = None;
                 self.draw();
-                // The next picture: the surface waits for the display, so this is one draw per refresh.
-                if let Some(window) = &self.window {
+                // The next picture: the surface waits for the display. High Refresh asks at once, so this is one
+                // draw per refresh; Balanced asks again just before the n-th refresh (`pacing`).
+                if let Some(window) = self.window.clone() {
                     if window.is_visible().unwrap_or(true) && !window.is_minimized().unwrap_or(false) {
-                        window.request_redraw();
+                        let mode = self.shell.scene.settings().display_refresh_mode;
+                        match pacing::next_picture_delay(mode, self.display_hz(&window)) {
+                            None => window.request_redraw(),
+                            Some(delay) => self.next_picture_at = Some(self.last_acquire + delay),
+                        }
                     }
                 }
             }
@@ -1105,6 +1149,10 @@ fn main() {
         started: std::time::Instant::now(),
         stalled: false,
         last_draw: std::time::Instant::now(),
+        last_acquire: std::time::Instant::now(),
+        next_picture_at: None,
+        display_hz: None,
+        display_hz_checked: None,
         last_background: std::time::Instant::now(),
         last_tray: std::time::Instant::now(),
     };

@@ -64,14 +64,22 @@ fn milliwatt_conversion_identity_at_one_kilo_ohm() {
 fn every_entry_cites_its_source_and_date() {
     for (name, s) in sensitivity::by_curve_name() {
         assert!(
-            s.source.contains("2026-09-21") || s.source.contains("2026-10-08"),
+            s.source.contains("2026-09-21") || s.source.contains("2026-10-08") || s.source.contains("2026-10-21"),
             "{name} has no fetch date"
         );
         assert!(s.source.contains("fetched"), "{name} does not say it was fetched");
         assert!(
-            ["sennheiser", "focal", "audeze", "sony", "beyerdynamic", "64audio"]
-                .iter()
-                .any(|maker| s.source.contains(maker)),
+            [
+                "sennheiser",
+                "focal",
+                "audeze",
+                "sony",
+                "beyerdynamic",
+                "64audio",
+                "abyss-headphones"
+            ]
+            .iter()
+            .any(|maker| s.source.contains(maker)),
             "{name} does not cite a manufacturer domain"
         );
     }
@@ -103,6 +111,7 @@ fn the_library_holds_only_verified_headphones() {
         "64 Audio U12t (m15 module)",
         "64 Audio U12t (m20 module)",
         "64 Audio U12t (mX module)",
+        "Abyss AB-1266 Phi TC",
     ]
     .into();
     assert_eq!(names, expected);

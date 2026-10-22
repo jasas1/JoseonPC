@@ -48,7 +48,7 @@ for docs, ident, name, src, levels in pattern.findall(source):
 
 headphones = numbers(re.search(r"static let headphones: \[HeadphoneCurve\] = \[(.*?)\]", source, re.S).group(1))
 targets = numbers(re.search(r"static let targets: \[HeadphoneCurve\] = \[(.*?)\]", source, re.S).group(1))
-assert len(curves) == len(headphones) + len(targets) == 21, (len(curves), len(headphones), len(targets))
+assert len(curves) == len(headphones) + len(targets) == 22, (len(curves), len(headphones), len(targets))
 
 
 def const_name(ident):

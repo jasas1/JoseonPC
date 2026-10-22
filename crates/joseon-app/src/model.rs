@@ -651,7 +651,7 @@ mod tests {
         // First run: the default pair.
         assert_eq!(model.settings.headphone_name.as_deref(), Some(DEFAULT_HEADPHONE_NAME));
         assert_eq!(model.settings.target_name, DEFAULT_TARGET_NAME);
-        assert_eq!(model.curve_names().headphones.len(), 17);
+        assert_eq!(model.curve_names().headphones.len(), 18);
         assert_eq!(model.curve_names().targets.len(), 4);
         model.start();
         let end = std::time::Instant::now() + std::time::Duration::from_secs(5);

@@ -10,7 +10,7 @@
 //!
 //! A headphone whose maker publishes no usable figure is **not in this
 //! library**. It is in `UNLISTED` with the reason, so the app can say why it
-//! asks the user for a number. Seven of the seventeen embedded curves are in that
+//! asks the user for a number. Seven of the eighteen embedded curves are in that
 //! state.
 //!
 //! Keys are the same curve names `HeadphoneLibrary` uses.
@@ -142,6 +142,16 @@ pub fn u12t() -> HeadphoneSensitivity {
     )
 }
 
+/// Abyss gives no frequency for the figure. The page now sells the headphone as the "AB1266 TC" under the
+/// address `abyss-ab-1266-phi-headphone`; it is paired with the Phi TC that oratory1990 measured on that basis.
+pub fn ab1266_phi_tc() -> HeadphoneSensitivity {
+    HeadphoneSensitivity::from_db_per_milliwatt(
+        88.0,
+        50.0,
+        "Abyss AB1266 TC product page, \"Sensitivity: 88 db/mW\", \"Impedance: 50 ohm nominal\" — abyss-headphones.com/products/abyss-ab-1266-phi-headphone, fetched 2026-10-21",
+    )
+}
+
 /// Every verified entry, with the curve name `HeadphoneLibrary` uses.
 pub fn by_curve_name() -> Vec<(&'static str, HeadphoneSensitivity)> {
     vec![
@@ -155,6 +165,7 @@ pub fn by_curve_name() -> Vec<(&'static str, HeadphoneSensitivity)> {
         ("64 Audio U12t (m15 module)", u12t()),
         ("64 Audio U12t (m20 module)", u12t()),
         ("64 Audio U12t (mX module)", u12t()),
+        ("Abyss AB-1266 Phi TC", ab1266_phi_tc()),
     ]
 }
 

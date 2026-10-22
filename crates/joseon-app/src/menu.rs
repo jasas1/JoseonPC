@@ -12,8 +12,8 @@
 use crate::layout::Card;
 use crate::model::CurveNames;
 use crate::settings::{
-    AppSettings, LayoutPreset, LoudnessTarget, MiniGraphColor, BIN_CHOICES, DB_RANGE_CHOICES, HISTORY_CHOICES,
-    TILT_CHOICES, TIMELINE_WINDOW_CHOICES,
+    AppSettings, DisplayRefreshMode, LayoutPreset, LoudnessTarget, MiniGraphColor, BIN_CHOICES, DB_RANGE_CHOICES,
+    HISTORY_CHOICES, TILT_CHOICES, TIMELINE_WINDOW_CHOICES,
 };
 use crate::update::Status;
 
@@ -58,6 +58,8 @@ pub enum Command {
     ToggleAutoUpdate,
     ToggleNowPlaying,
     ToggleDemo,
+    /// Display → Animation.
+    RefreshMode(DisplayRefreshMode),
     /// The headphone at this place of the list. `None` = no headphone.
     Headphone(Option<u16>),
     /// The target at this place of the list.
@@ -418,6 +420,16 @@ pub fn settings_menu(s: &AppSettings, frozen: bool, names: &CurveNames) -> Vec<E
         Command::ToggleVolumeAlways,
     ));
     menu.push(Entry::Separator);
+    menu.push(Entry::Header("Display"));
+    let mut animation: Vec<Entry> = DisplayRefreshMode::ALL
+        .into_iter()
+        .map(|mode| check(mode.title(), s.display_refresh_mode == mode, Command::RefreshMode(mode)))
+        .collect();
+    animation.push(Entry::Note(
+        "Balanced uses less power. High Refresh moves more smoothly on a fast display and uses more power.".into(),
+    ));
+    menu.push(pick("Animation", animation));
+    menu.push(Entry::Separator);
     menu.push(item("Reset Measurement\tR", Command::ResetMeasurement));
     menu.push(check("Freeze Display\tSpace", frozen, Command::ToggleFreeze));
     menu.push(Entry::Separator);
@@ -489,6 +501,7 @@ pub fn apply(s: &mut AppSettings, command: Command, names: &CurveNames) -> Effec
             s.compensate_system_volume = true;
         }
         ToggleNowPlaying => s.show_now_playing = !s.show_now_playing,
+        RefreshMode(mode) => s.display_refresh_mode = mode,
         ToggleMiniStrip => s.show_mini_strip = !s.show_mini_strip,
         MiniColor(color) => s.mini_graph_color = color,
         // "None" is a choice too: the empty name, not "never chosen".
@@ -753,6 +766,9 @@ mod tests {
                 "[x] Take the Windows Volume Out of the Numbers",
                 "[ ] Also When the Device Has Its Own Volume Control",
                 "-",
+                "# Display",
+                "> Animation (3)",
+                "-",
                 "Reset Measurement\tR",
                 "[ ] Freeze Display\tSpace",
                 "-",
@@ -788,6 +804,12 @@ mod tests {
             (s.display_bins, s.loudness_target, s.compensate_system_volume),
             (2048, -23, false)
         );
+        assert_eq!(
+            run(&mut s, Command::RefreshMode(DisplayRefreshMode::HighRefresh)),
+            Effect::Settings
+        );
+        assert_eq!(s.display_refresh_mode, DisplayRefreshMode::HighRefresh);
+        assert!(s.to_json().contains("\"displayRefreshMode\": \"highRefresh\""));
         assert_eq!(run(&mut s, Command::ToggleDemo), Effect::SettingsAndSource);
         assert!(s.demo_mode);
         assert_eq!(run(&mut s, Command::ClearTimeline), Effect::ClearTimeline);

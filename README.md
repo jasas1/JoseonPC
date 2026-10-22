@@ -29,6 +29,7 @@ Goal: the same features as Joseon on macOS.
 - Level at the ear (SPL estimate), calibration, headphone measurement with a microphone
 - Session timeline and summary, comparison snapshots, now playing
 - Tray mini spectrum
+- Balanced animation by default, with High Refresh (every refresh of the display) in Settings → Display
 
 Capture uses WASAPI loopback. No driver. Audio stays on the PC and is never recorded.
 

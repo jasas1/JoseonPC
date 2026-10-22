@@ -3,6 +3,11 @@ An early test build of Joseon for Windows.
 **To try it:** download the zip below, unpack it, play some music, and start `Joseon.exe`.
 Nothing is installed. `README.txt` in the zip has the keys and what to do when the panels do not move.
 
+**New in v0.0.13**
+- Settings → Display → Animation. "Balanced", the default, draws about 60 pictures per second, also on a 144 or 240 Hz display, so Joseon takes less of the graphics card while you play. "High Refresh" draws on every refresh of the display, as before. Ported from the macOS app 0.1.2.
+- The waterfall turns and the vectorscope fades at an even speed on fast displays.
+- One more headphone in the list: Abyss AB-1266 Phi TC.
+
 **New in v0.0.12**
 - Safer updates. Joseon installs an update only when its SHA-256 matches the one GitHub gives for the release. It downloads only from GitHub, with every redirect checked, and it uses the `curl` and `tar` that come with Windows.
 

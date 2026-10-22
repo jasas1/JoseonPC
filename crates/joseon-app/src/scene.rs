@@ -1024,7 +1024,7 @@ impl Scene {
                     }
                     view.undrawn = true;
                     view.last_host_time = frame.host_time;
-                    view.renderer.ingest(frame.clone());
+                    view.renderer.ingest_animated(frame.clone(), Some(dt));
                 } else {
                     let renderer = &mut view.renderer;
                     renderer.panel.idle(&mut renderer.base, dt);

@@ -87,6 +87,28 @@ impl MiniGraphColor {
     }
 }
 
+/// How smooth the pictures move. Presentation only: the analysis keeps its own rate in both modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DisplayRefreshMode {
+    /// About 60 pictures per second: less power.
+    #[default]
+    Balanced,
+    /// A picture on every refresh of the display: smoother on a fast display, more power.
+    HighRefresh,
+}
+
+impl DisplayRefreshMode {
+    pub const ALL: [DisplayRefreshMode; 2] = [Self::Balanced, Self::HighRefresh];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Balanced => "Balanced",
+            Self::HighRefresh => "High Refresh (every refresh of the display)",
+        }
+    }
+}
+
 /// Loudness normalization targets the user can compare the integrated loudness with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LoudnessTarget {
@@ -180,6 +202,8 @@ pub struct AppSettings {
     pub comparison_headphone_mode: bool,
 
     // App
+    /// Display → Animation: Balanced (about 60 pictures per second) or High Refresh.
+    pub display_refresh_mode: DisplayRefreshMode,
     pub layout_preset: LayoutPreset,
     pub mini_graph_color: MiniGraphColor,
     /// The mini strip: a small window that stays over the other windows (new in this port).
@@ -244,6 +268,7 @@ impl Default for AppSettings {
             timeline_show_ear_lane: false,
             comparison_level_match: true,
             comparison_headphone_mode: false,
+            display_refresh_mode: DisplayRefreshMode::Balanced,
             layout_preset: LayoutPreset::Essential,
             mini_graph_color: MiniGraphColor::Template,
             show_mini_strip: false,

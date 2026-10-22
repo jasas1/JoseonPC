@@ -18,6 +18,7 @@ pub mod menu;
 pub mod mini;
 pub mod model;
 pub mod number_text;
+pub mod pacing;
 pub mod scene;
 pub mod settings;
 pub mod single_instance;

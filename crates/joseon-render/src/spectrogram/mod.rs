@@ -827,7 +827,8 @@ impl Panel for SpectrogramPanel {
             self.mirror_head = (self.mirror_head + 1) % COLUMNS;
             self.emitted_columns += 1;
         }
-        self.step_camera(base, dt);
+        let animation_delta = base.animation_delta;
+        self.step_camera(base, animation_delta);
     }
 
     fn encode_pre_pass(&mut self, base: &mut PanelBase, encoder: &mut wgpu::CommandEncoder) {

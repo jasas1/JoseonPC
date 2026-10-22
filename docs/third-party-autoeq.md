@@ -85,6 +85,24 @@ rounding to two decimals.
 Not in AutoEq on that date, and so not embedded: a "Tea Pro SE" (the Tea Pro stands in for it) and
 a "CrinEar Reference" (AutoEq has the CrinEar Meta and Daybreak only).
 
+### Headphone response added on 2026-10-21
+
+Fetch date: **2026-10-21**. The source file is in `data/autoeq/`. The macOS app made the block for
+`EmbeddedCurves.swift` with the same steps, checked again against Sennheiser HD 600 and Apple AirPods
+Pro 2 (0.01 dB at most), and `tools/embed_curves.py` made `embedded_curves.rs` from that Swift file.
+
+| Embedded name | AutoEq path (under `master/`) | Measurer |
+|---|---|---|
+| Abyss AB-1266 Phi TC | `results/oratory1990/over-ear/Abyss AB1-266 Phi TC/Abyss AB1-266 Phi TC.csv` | oratory1990 |
+
+AutoEq spells the model "AB1-266"; Joseon uses the maker's "AB-1266". Kuulokenurkka also
+measured it; the oratory1990 file was chosen because its stored target is Harman over-ear
+2018, the target Joseon pairs with over-ear curves. Decimation error: max 0.12 dB, mean 0.01 dB.
+
+Not in AutoEq on that date, and so not embedded: the **Abyss Diana TC Signature**. AutoEq has
+the Diana MR, Diana Phi and Diana V2 only. None of them stands in for it: the TC Signature has
+its own driver.
+
 ### Target curves
 
 | Embedded name | AutoEq path (under `master/`) |
